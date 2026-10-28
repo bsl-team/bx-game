@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{{ ui.title }}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}" />
+    <script>
+      window.BX_UI = {{ ui | tojson }};
+    </script>
+  </head>
+  <body data-theme="{{ ui.theme }}">
+    <header class="topbar">
+      <div class="topbar-inner">
+        <div class="brand">
+          <span class="brand-dot"></span>
+          <div>
+            <h1>{{ ui.title }}</h1>
+            {% if ui.subtitle %}<p class="subtitle">{{ ui.subtitle }}</p>{% endif %}
+          </div>
+        </div>
+        <div class="stats" role="status" aria-live="polite">
+          <div class="stat"><span class="stat-label">关卡</span><span class="stat-value" id="stat-level">–</span></div>
+          <div class="stat"><span class="stat-label">密码长度</span><span class="stat-value" id="stat-length">–</span></div>
+          <div class="stat accent"><span class="stat-label">全网总猜测</span><span class="stat-value" id="stat-total">–</span></div>
+          <div class="stat"><span class="stat-label">本关猜测</span><span class="stat-value" id="stat-level-guesses">–</span></div>
+        </div>
+      </div>
+    </header>
+
+    <main class="chat" id="chat" aria-live="polite"></main>
+
+    <footer class="composer">
+      <div class="composer-inner">
+        <form id="guess-form" autocomplete="off">
+          <input
+            id="guess-input"
+            name="guess"
+            type="text"
+            inputmode="latin"
+            spellcheck="false"
+            maxlength="64"
+            placeholder="输入你猜的密码，回车提交"
+            aria-label="输入你猜的密码"
+          />
+          <button id="send-btn" type="submit" aria-label="提交">↑</button>
+        </form>
+        <div class="composer-meta">
+          <span id="quota"></span>
+          <span>{{ ui.footer_text }}</span>
+        </div>
+      </div>
+    </footer>
+
+    <script src="{{ url_for('static', filename='app.js') }}"></script>
+  </body>
+</html>
