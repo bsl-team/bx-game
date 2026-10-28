@@ -1,0 +1,50 @@
+{
+  "server": {
+    "host": "127.0.0.1",
+    "port": 5000,
+    "debug": false
+  },
+  "security": {
+    "secret_key_file": "data/secret.key",
+    "session_cookie_name": "bxgame",
+    "session_max_age_seconds": 2592000,
+    "session_httponly": true,
+    "session_samesite": "Lax",
+    "session_secure": false,
+    "hash_algorithm": "pbkdf2_sha256",
+    "hash_iterations": 120000,
+    "guess_rate_limit_per_minute": 30,
+    "guess_min_interval_ms": 150,
+    "max_guess_length": 64
+  },
+  "password": {
+    "charset": "lower",
+    "charsets": {
+      "digits": "0123456789",
+      "lower": "abcdefghijklmnopqrstuvwxyz",
+      "upper": "ABCDEFGHIJKLMNOPQRSTUVWXYZ",
+      "hex": "0123456789abcdef",
+      "alnum_lower": "abcdefghijklmnopqrstuvwxyz0123456789",
+      "alnum": "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+    },
+    "level1_length": 4,
+    "length_step": 1,
+    "length_max": 8,
+    "avoid_repeats": true
+  },
+  "rounds": {
+    "max_levels": 0,
+    "auto_advance": true,
+    "state_file": "data/state.json"
+  },
+  "ui": {
+    "title": "猜密码",
+    "subtitle": "bx-game · 全网共猜一关",
+    "accent_color": "#10a37f",
+    "theme": "chatgpt",
+    "poll_interval_ms": 2500,
+    "show_charset_hint": false,
+    "max_chat_messages": 60,
+    "footer_text": "服务端只保存密码哈希，前端只显示密码长度。"
+  }
+}
