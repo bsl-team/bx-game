@@ -11,20 +11,60 @@
 5. 过关进度写进签名 Cookie：**第一关没过，服务端就不会把你的请求判定到第二关**，即使你直接猜第二关的密码也算错。
 6. 密码长度按关卡递增（`level1_length` + `length_step`，上限 `length_max`）。
 
-## 启动
+## 本地运行
 
 ```bash
 pip install -r requirements.txt
 python app.py            # http://127.0.0.1:5000/
 ```
 
-其他命令：
+运维命令：
 
 ```bash
 python app.py status     # 查看当前关卡与全局计数
 python app.py reset      # 清空进度，回到第一关
-python app.py run --host 0.0.0.0 --port 8080 --debug
+python app.py run --config /path/to/config.json --host 0.0.0.0 --port 8080 --debug
 ```
+
+## 部署方式
+
+全局状态是「单进程 + 文件锁 + 内存限流」实现的，**只能跑一个 worker**，多进程会互相覆盖 `data/state.json` 并各自计数。
+
+```bash
+# Linux（推荐 gunicorn，线程并发足够扛小规模流量）
+pip install gunicorn
+gunicorn -w 1 --threads 16 -b 127.0.0.1:8080 wsgi:app
+
+# Windows 本机常驻
+pip install waitress
+waitress-serve --listen=127.0.0.1:8080 wsgi:app
+```
+
+Nginx 反代 + systemd：
+
+```nginx
+location / {
+    proxy_pass http://127.0.0.1:8080;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-Proto $scheme;
+}
+```
+
+```ini
+# /etc/systemd/system/bx-game.service
+[Service]
+WorkingDirectory=/opt/bx-game
+ExecStart=/usr/bin/gunicorn -w 1 --threads 16 -b 127.0.0.1:8080 wsgi:app
+Restart=always
+[Install]
+WantedBy=multi-user.target
+```
+
+上线要点：
+
+- `data/` 必须持久化：`state.json` 是关卡进度，`secret.key` 是 Cookie 签名密钥；换机器要一起备份，删 `secret.key` 等于所有人进度作废，删 `state.json` 等于重开第一关。
+- 上了 HTTPS 就把 `config.json` 的 `security.session_secure` 设为 `true`。
+- 公网部署请调大 `hash_iterations` 或加长 `level1_length`，并把 `guess_rate_limit_per_minute` 压到个位数。
 
 ## 配置
 
@@ -35,8 +75,9 @@ python app.py run --host 0.0.0.0 --port 8080 --debug
 | `server` | `host` / `port` / `debug` | 监听地址与调试模式 |
 | `security` | `hash_algorithm` | `pbkdf2_sha256`、`pbkdf2_sha512`、`sha256` 等 |
 | `security` | `hash_iterations` | PBKDF2 迭代次数 |
-| `security` | `secret_key_file` | Cookie 签名密钥文件，删掉即让所有玩家进度失效 |
+| `security` | `secret_key_file` | Cookie 签名密钥文件 |
 | `security` | `session_max_age_seconds` | Cookie 有效期 |
+| `security` | `session_secure` | 仅 HTTPS 下发送 Cookie |
 | `security` | `guess_rate_limit_per_minute` | 每个 Cookie 每分钟可猜次数 |
 | `security` | `guess_min_interval_ms` | 两次猜测的最小间隔 |
 | `password` | `charset` | `digits` / `lower` / `upper` / `hex` / `alnum_lower` / `alnum` |
@@ -52,7 +93,8 @@ python app.py run --host 0.0.0.0 --port 8080 --debug
 
 ## 说明
 
-- 全局状态在 `data/state.json`，`data/` 已在 `.gitignore` 中；单机多线程用文件锁 + 临时文件原子替换写入。
-- 关卡密码记录只含 `salt` / `hash` / `length` / 猜测次数，接口不会返回任何哈希字段。
+- 文件结构：`app.py` 路由与 Cookie 门禁，`game.py` 密码生成/哈希/关卡状态，`wsgi.py` 生产入口，`templates/index.html` + `static/` 前端。
+- 关卡密码记录只含 `salt` / `hash` / `length` / 猜测次数，`/api/status` 与 `/api/guess` 不返回任何哈希字段。
+- 写盘用临时文件 + `os.replace` 原子替换，避免中途崩溃留下半个 JSON。
 - 界面为 ChatGPT 风格：中性灰背景、圆角气泡、底部胶囊输入框 + 绿色圆形发送按钮，深色模式跟随系统。
-- 限流按 Cookie 计数，超限返回 `429`。
+- 限流按 Cookie 计数，超限返回 `429`；含空格或超长的输入直接被拒且不计入全局次数。
