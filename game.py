@@ -185,8 +185,8 @@ class GameStore:
             return {"ok": False, "error": "empty", "message": "请输入密码"}
         if len(guess) > max_len:
             return {"ok": False, "error": "too_long", "message": f"最长 {max_len} 个字符"}
-        if not re.fullmatch(r"[0-9A-Za-z]+", guess):
-            return {"ok": False, "error": "charset", "message": "只能输入字母或数字"}
+        if not re.fullmatch(r"\S+", guess):
+            return {"ok": False, "error": "charset", "message": "不能包含空格或换行"}
 
         with self.lock:
             self.ensure_current_level_locked()

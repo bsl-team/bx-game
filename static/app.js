@@ -123,7 +123,7 @@ async function submitGuess() {
     if (data.correct) {
       addMessage(
         "result-ok",
-        `<b>正确 ✅</b> ${data.advanced ? `自动进入${levelName(data.next_level)}，新密码长度 <span class="code">${data.next_length}</span> 位。` : data.finished ? "这是最后一关，你已通关！" : "本关全网已被破解，按自己的进度继续。"}`,
+        `<b>正确 ✅</b> ${data.advanced ? `全网自动进入${levelName(data.next_level)}，新密码长度 <span class="code">${data.next_length}</span> 位。` : data.finished ? "这是最后一关，你已通关！" : "本关全网早已被别人破解，你按自己的进度继续。"}`,
         chips
       );
       banner(data.finished ? "全部通关" : `进入${levelName(data.next_level || state.level)}`);
