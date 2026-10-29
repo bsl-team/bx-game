@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex, nofollow" />
+    <title>管理面板 · {{ ui.title }}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}" />
+    <link rel="stylesheet" href="{{ url_for('static', filename='admin.css') }}" />
+    <script>
+      window.BX_ADMIN = {
+        csrf: {{ csrf | tojson }},
+        authed: {{ authed | tojson }},
+        setupRequired: {{ setup_required | tojson }},
+        charsets: {{ charsets | tojson }},
+        minPasswordLength: {{ min_password_length | tojson }},
+        ui: {{ ui | tojson }}
+      };
+    </script>
+  </head>
+  <body data-page="admin">
+    <header class="topbar">
+      <div class="topbar-inner">
+        <div class="brand">
+          <span class="brand-dot"></span>
+          <div>
+            <h1>{{ ui.title }} · 管理面板</h1>
+            <p class="subtitle">仅管理员可见：每关明文密码、尝试日志、关卡增删</p>
+          </div>
+        </div>
+        <div class="admin-head-actions">
+          <span id="conn" class="pill">连接中…</span>
+          <button id="refresh-btn" class="btn ghost" type="button">刷新</button>
+          <button id="logout-btn" class="btn ghost" type="button" hidden>退出登录</button>
+        </div>
+      </div>
+    </header>
+
+    <main class="admin-main">
+      <section id="gate" class="card gate" hidden>
+        <h2 id="gate-title">登录</h2>
+        <p id="gate-hint" class="muted"></p>
+        <form id="gate-form" class="stack" autocomplete="off">
+          <label id="token-row" class="field" hidden>
+            <span>admin token</span>
+            <input id="token-input" type="text" placeholder="服务器控制台或 data/admin_token.txt 里的字符串" />
+          </label>
+          <label class="field">
+            <span id="pw-label">管理密码</span>
+            <input id="pw-input" type="password" autocomplete="current-password" />
+          </label>
+          <label id="pw2-row" class="field" hidden>
+            <span>确认新密码</span>
+            <input id="pw2-input" type="password" autocomplete="new-password" />
+          </label>
+          <button class="btn primary" type="submit" id="gate-submit">登录</button>
+        </form>
+        <p id="gate-msg" class="msg-line"></p>
+      </section>
+
+      <div id="dashboard" hidden>
+        <section class="kpis" id="kpis"></section>
+
+        <section class="card">
+          <div class="card-head">
+            <h2>关卡</h2>
+            <span class="muted" id="reveal-note"></span>
+          </div>
+          <div class="table-wrap">
+            <table class="table" id="levels-table">
+              <thead>
+                <tr>
+                  <th>关卡</th><th>密码</th><th>长度</th><th>字符集</th><th>本关次数</th>
+                  <th>状态</th><th>最近改密</th><th class="col-actions">操作</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="grid-2">
+          <div class="card">
+            <h2>关卡管理</h2>
+            <form id="add-form" class="stack">
+              <div class="row">
+                <label class="field"><span>新增关数</span><input id="add-count" type="number" min="1" max="50" value="1" /></label>
+                <label class="field"><span>长度（留空按曲线）</span><input id="add-length" type="number" min="1" max="64" placeholder="自动" /></label>
+              </div>
+              <div class="row">
+                <label class="field"><span>字符集</span><select id="add-charset"></select></label>
+                <label class="field"><span>指定密码（可选）</span><input id="add-password" type="text" placeholder="随机" /></label>
+              </div>
+              <button class="btn" type="submit">新增关卡</button>
+            </form>
+            <hr />
+            <form id="jump-form" class="row inline">
+              <label class="field"><span>当前关卡设为</span><input id="jump-level" type="number" min="1" value="1" /></label>
+              <button class="btn" type="submit">跳转</button>
+            </form>
+            <hr />
+            <form id="reset-form" class="row inline">
+              <label class="field"><span>清零关卡（留空=全部）</span><input id="reset-level" type="number" min="1" placeholder="全部" /></label>
+              <button class="btn danger" type="submit">清零计数</button>
+            </form>
+          </div>
+
+          <div class="card">
+            <h2>管理密码</h2>
+            <form id="pwd-form" class="stack">
+              <label class="field"><span>原密码</span><input id="old-pw" type="password" autocomplete="current-password" /></label>
+              <label class="field"><span>新密码（至少 <b id="min-pw"></b> 位）</span><input id="new-pw" type="password" autocomplete="new-password" /></label>
+              <button class="btn" type="submit">修改密码</button>
+              <p class="muted">修改后所有已登录的管理会话立即失效，需要用新密码重新登录。</p>
+            </form>
+          </div>
+        </section>
+
+        <section class="card">
+          <div class="card-head">
+            <h2>最近尝试</h2>
+            <span class="muted">最多 100 条 · 含玩家提交的原文</span>
+          </div>
+          <div class="table-wrap">
+            <table class="table" id="log-table">
+              <thead>
+                <tr><th>时间</th><th>关卡</th><th>玩家</th><th>猜测</th><th>长度</th><th>结果</th></tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </section>
+      </div>
+    </main>
+
+    <p id="toast" class="toast" hidden></p>
+
+    <script src="{{ url_for('static', filename='admin.js') }}"></script>
+  </body>
+</html>
