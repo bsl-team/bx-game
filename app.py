@@ -10,6 +10,7 @@ from pathlib import Path
 
 from flask import Flask, jsonify, render_template, request, session
 
+from admin import AdminAuth, bp
 from game import ROOT, GameStore, RateLimiter
 
 DEFAULTS = {
@@ -36,6 +37,18 @@ DEFAULTS = {
         "avoid_repeats": True,
     },
     "rounds": {"max_levels": 0, "auto_advance": True, "state_file": "data/state.json"},
+    "admin": {
+        "credentials_file": "data/admin.json",
+        "token_file": "data/admin_token.txt",
+        "session_max_age_seconds": 1800,
+        "hash_iterations": 200000,
+        "min_password_length": 8,
+        "login_rate_limit_per_5min": 10,
+        "login_min_interval_ms": 800,
+        "reveal_passwords": True,
+        "log_guess_text": True,
+        "guess_log_size": 500,
+    },
     "ui": {
         "title": "猜密码",
         "subtitle": "",
@@ -101,8 +114,22 @@ def create_app(cfg: dict) -> Flask:
 
     store = GameStore(cfg)
     limiter = RateLimiter(cfg)
+    admin_cfg = cfg["admin"]
+    admin_limiter = RateLimiter(
+        cfg,
+        limit=int(admin_cfg.get("login_rate_limit_per_5min", 10)),
+        window=300.0,
+        min_interval_ms=int(admin_cfg.get("login_min_interval_ms", 800)),
+    )
+    app.extensions["bx_cfg"] = cfg
     app.extensions["bx_store"] = store
     app.extensions["bx_limiter"] = limiter
+    app.extensions["bx_admin"] = AdminAuth(cfg)
+    app.extensions["bx_admin_limiter"] = admin_limiter
+    app.register_blueprint(bp)
+
+    if not admin_cfg.get("reveal_passwords", True):
+        store.admin_purge_plaintext()
 
     def player_id() -> str:
         pid = session.get("pid")
@@ -117,6 +144,8 @@ def create_app(cfg: dict) -> Flask:
     @app.after_request
     def no_cache(resp):
         resp.headers["Cache-Control"] = "no-store"
+        if request.path.startswith("/admin"):
+            resp.headers["X-Robots-Tag"] = "noindex, nofollow"
         return resp
 
     @app.get("/")
@@ -168,7 +197,10 @@ def create_app(cfg: dict) -> Flask:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="bx-game 猜密码小游戏")
-    parser.add_argument("command", nargs="?", default="run", choices=["run", "reset", "status"])
+    parser.add_argument(
+        "command", nargs="?", default="run",
+        choices=["run", "reset", "status", "admin-token", "admin-reset"],
+    )
     parser.add_argument("--config", type=Path, default=None)
     parser.add_argument("--host", default=None)
     parser.add_argument("--port", type=int, default=None)
@@ -183,20 +215,26 @@ def main() -> None:
     if args.command == "status":
         print(json.dumps(GameStore(cfg).status(0), ensure_ascii=False, indent=2))
         return
+    if args.command in ("admin-token", "admin-reset"):
+        auth = AdminAuth(cfg)
+        if args.command == "admin-token":
+            token = auth.bootstrap_token()
+            print(token or "管理密码已设置，token 不可用；需要重新发放请用 `python app.py admin-reset`")
+        else:
+            print(f"已作废旧密码，新 admin token: {auth.rotate_token()}")
+        return
 
     host = args.host or cfg["server"]["host"]
     port = args.port or int(cfg["server"]["port"])
     debug = bool(args.debug or cfg["server"]["debug"])
     app = create_app(cfg)
-    print(f"猜密码小游戏 → http://{host}:{port}/  (关卡: 全局第 {store_level(cfg)} 关)")
+    print(f"猜密码小游戏 → http://{host}:{port}/  管理面板 /admin  "
+          f"(当前第 {app.extensions['bx_store'].status(0)['global_level']} 关)")
+    token = app.extensions["bx_admin"].bootstrap_token()
+    if token:
+        print(f"首次启动 admin token: {token}")
+        print(f"（也写在 {ROOT / cfg['admin']['token_file']}）在 /admin 输入它来设置管理密码，设置后 token 立即作废。")
     app.run(host=host, port=port, debug=debug, threaded=True)
-
-
-def store_level(cfg: dict) -> int:
-    try:
-        return GameStore(cfg).status(0)["global_level"]
-    except Exception:
-        return "?"
 
 
 if __name__ == "__main__":

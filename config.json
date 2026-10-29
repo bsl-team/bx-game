@@ -37,6 +37,18 @@
     "auto_advance": true,
     "state_file": "data/state.json"
   },
+  "admin": {
+    "credentials_file": "data/admin.json",
+    "token_file": "data/admin_token.txt",
+    "session_max_age_seconds": 1800,
+    "hash_iterations": 200000,
+    "min_password_length": 8,
+    "login_rate_limit_per_5min": 10,
+    "login_min_interval_ms": 800,
+    "reveal_passwords": true,
+    "log_guess_text": true,
+    "guess_log_size": 500
+  },
   "ui": {
     "title": "猜密码",
     "subtitle": "bx-game · 全网共猜一关",
