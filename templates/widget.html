@@ -1,0 +1,28 @@
+{# 由服务端注入到站长自己写的关卡页面里：只加一个密码框，不改动其它内容 #}
+<link rel="stylesheet" href="{{ url_for('static', filename='widget.css') }}" />
+<div
+  class="bxw"
+  data-level="{{ view.level }}"
+  data-length="{{ view.password_length }}"
+  data-playable="{{ '1' if view.is_playable else '0' }}"
+  data-next-level="{{ next_level }}"
+  data-auto-redirect="{{ '1' if auto_redirect else '0' }}"
+  data-poll-ms="{{ ui.poll_interval_ms }}"
+>
+  <div class="bxw-head">
+    <span class="bxw-level"></span>
+    <span class="bxw-stats">
+      答案 <b class="bxw-len">{{ view.password_length }}</b> 位 ·
+      全网已猜 <b class="bxw-total">{{ view.total_guesses }}</b> 次 ·
+      本关 <b class="bxw-own">{{ view.guesses }}</b> 次
+    </span>
+  </div>
+  {% if view.prompt %}<p class="bxw-prompt">{{ view.prompt }}</p>{% endif %}
+  <form class="bxw-form">
+    <input class="bxw-input" type="text" inputmode="latin" autocomplete="off" spellcheck="false"
+           placeholder="{% if view.is_playable %}输入答案{% else %}这一关已经过去了{% endif %}" />
+    <button class="bxw-btn" type="submit">提交</button>
+  </form>
+  <p class="bxw-msg"></p>
+</div>
+<script src="{{ url_for('static', filename='widget.js') }}"></script>

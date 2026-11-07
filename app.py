@@ -8,10 +8,10 @@ import time
 from datetime import timedelta
 from pathlib import Path
 
-from flask import Flask, jsonify, redirect, render_template, request, session, url_for
+from flask import Flask, Response, jsonify, redirect, render_template, request, session, url_for
 
 from admin import AdminAuth, bp
-from game import ROOT, GameStore, RateLimiter
+from game import ROOT, GameStore, RateLimiter, inject_password_widget
 
 DEFAULTS = {
     "server": {"host": "127.0.0.1", "port": 5000, "debug": False},
@@ -156,13 +156,31 @@ def create_app(cfg: dict) -> Flask:
             resp.headers["X-Robots-Tag"] = "noindex, nofollow"
         return resp
 
+    def widget_html(view: dict) -> str:
+        return render_template(
+            "widget.html",
+            view=view,
+            ui=cfg["ui"],
+            auto_redirect=bool(cfg["rounds"].get("auto_redirect", True)),
+            next_level=view["level"] + 1,
+        )
+
     def render_level_page(page_level: int | None):
         session.permanent = True
         player_id()
+        cleared = cleared_levels()
         ui = dict(cfg["ui"])
         ui["rate_limit_per_minute"] = int(sec["guess_rate_limit_per_minute"])
         ui["auto_redirect"] = bool(cfg["rounds"].get("auto_redirect", True))
-        return render_template("index.html", ui=ui, cfg=cfg, page_level=page_level)
+        target = page_level if page_level is not None else min(cleared + 1, store.status(cleared)["global_level"])
+        try:
+            view = store.level_view(target, cleared)
+        except (PermissionError, KeyError):
+            view = None
+        # 站长自己写好的网页源码：我们只往里面插一个密码框
+        if view and view.get("html"):
+            return Response(inject_password_widget(view["html"], widget_html(view)), mimetype="text/html")
+        return render_template("index.html", ui=ui, cfg=cfg, page_level=page_level, view=view)
 
     @app.get("/")
     def index():

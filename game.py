@@ -61,15 +61,17 @@ class QuestionBank:
         prompt = str(item.get("prompt", "")).strip()
         answer = str(item.get("answer", "")).strip()
         hint = str(item.get("hint", "")).strip()
-        if not prompt:
-            raise ValueError("题面不能为空")
+        title = str(item.get("title", "")).strip()
+        html = str(item.get("html", "")).strip()
+        if not prompt and not html:
+            raise ValueError("题面和网页源码至少要填一个")
         if not answer:
             raise ValueError("答案不能为空")
         if not re.fullmatch(r"\S+", answer):
             raise ValueError("答案不能包含空格或换行")
         if len(answer) > self.max_answer_length(self.cfg):
             raise ValueError(f"答案最长 {self.max_answer_length(self.cfg)} 个字符")
-        return {"prompt": prompt, "answer": answer, "hint": hint}
+        return {"prompt": prompt, "answer": answer, "hint": hint, "title": title, "html": html}
 
     def _read(self) -> list[dict]:
         if self.path.exists():
@@ -94,10 +96,12 @@ class QuestionBank:
         index = int(level) - 1
         return self.items[index] if 0 <= index < len(self.items) else None
 
-    def upsert(self, index: int, prompt: str, answer: str, hint: str = "") -> dict:
+    def upsert(self, index: int, prompt: str, answer: str, hint: str = "",
+               title: str = "", html: str = "") -> dict:
         """1-based index; appending past the end fills gaps with blanks rejected."""
         index = int(index)
-        item = self.normalize({"prompt": prompt, "answer": answer, "hint": hint})
+        item = self.normalize({"prompt": prompt, "answer": answer, "hint": hint,
+                               "title": title, "html": html})
         with self.lock:
             if index < 1 or index > len(self.items) + 1:
                 raise ValueError(f"题目序号只能是 1-{len(self.items) + 1}")
@@ -173,12 +177,26 @@ def verify_secret(secret: str, record: dict) -> bool:
     return hmac.compare_digest(got, expected)
 
 
+PASSWORD_ANCHOR = "<!--bx-password-->"
+
+
 def length_for_level(cfg: dict, level: int) -> int:
     pc = cfg["password"]
     base = max(1, int(pc.get("level1_length", 4)))
     step = max(0, int(pc.get("length_step", 1)))
     cap = max(base, int(pc.get("length_max", 8)))
     return min(base + step * (max(1, int(level)) - 1), cap)
+
+
+def inject_password_widget(source: str, widget: str) -> str:
+    """Put the password box inside the level author's own HTML page."""
+    html = source or ""
+    if PASSWORD_ANCHOR in html:
+        return html.replace(PASSWORD_ANCHOR, widget, 1)
+    if "</body>" in html.lower():
+        index = html.lower().rindex("</body>")
+        return html[:index] + widget + html[index:]
+    return html + widget
 
 
 class GameStore:
@@ -236,7 +254,8 @@ class GameStore:
         return bool(self.cfg.get("admin", {}).get("reveal_passwords", True))
 
     def _record(self, password: str, charset: str | None, base: dict | None = None,
-                prompt: str | None = None, hint: str | None = None, source: str = "random") -> dict:
+                prompt: str | None = None, hint: str | None = None, source: str = "random",
+                title: str | None = None, html: str | None = None) -> dict:
         rec = dict(base or {})
         rec.update(hash_secret(password, self.cfg))
         rec["length"] = len(password)
@@ -244,6 +263,8 @@ class GameStore:
         rec["plain"] = password if self.reveal_passwords else None
         rec["prompt"] = prompt
         rec["hint"] = hint
+        rec["title"] = title
+        rec["html"] = html or None
         rec["source"] = source
         rec.setdefault("custom", False)
         rec.setdefault("guesses", 0)
@@ -253,22 +274,21 @@ class GameStore:
         rec.setdefault("solved_by", None)
         return rec
 
-    def _from_bank(self, level: int) -> tuple[str, str, str | None] | None:
+    def _from_bank(self, level: int) -> dict | None:
         """Puzzle mode uses the question's answer; random mode (or a missing question) uses None."""
         if self.mode != "puzzle":
             return None
-        question = self.bank.get(level)
-        if not question:
-            return None
-        return question["answer"], question["prompt"], question.get("hint") or None
+        return self.bank.get(level)
 
     def _create_level(self, state: dict, level: int, password: str | None = None,
                       length: int | None = None, charset: str | None = None) -> dict:
-        banked = None if password is not None else self._from_bank(level)
-        if banked:
-            password, prompt, hint = banked
-            state["levels"][str(level)] = self._record(password, charset, prompt=prompt, hint=hint,
-                                                       source="question")
+        question = None if password is not None else self._from_bank(level)
+        if question:
+            state["levels"][str(level)] = self._record(
+                question["answer"], charset, prompt=question["prompt"] or None,
+                hint=question.get("hint") or None, title=question.get("title") or None,
+                html=question.get("html") or None, source="question",
+            )
         else:
             if password is None:
                 password = make_password(self.cfg, int(length or length_for_level(self.cfg, level)), charset)
@@ -391,6 +411,8 @@ class GameStore:
             "password_stored": bool(rec.get("plain")),
             "prompt": rec.get("prompt"),
             "hint": rec.get("hint"),
+            "title": rec.get("title"),
+            "has_html": bool(rec.get("html")),
             "source": rec.get("source", "random"),
             "length": rec.get("length"),
             "charset": rec.get("charset"),
@@ -569,6 +591,8 @@ class GameStore:
                 "level": level,
                 "prompt": rec.get("prompt"),
                 "hint": rec.get("hint"),
+                "title": rec.get("title"),
+                "html": rec.get("html"),
                 "has_hint": bool(rec.get("hint")),
                 "password_length": rec.get("length"),
                 "source": rec.get("source", "random"),
@@ -606,12 +630,14 @@ class GameStore:
         reveal = self.reveal_passwords
         return [
             {"index": i + 1, "prompt": q["prompt"], "hint": q.get("hint", ""),
+             "title": q.get("title", ""), "html": q.get("html", ""),
              "answer": q["answer"] if reveal else None, "length": len(q["answer"])}
             for i, q in enumerate(self.bank.items)
         ]
 
-    def admin_question_save(self, index: int, prompt: str, answer: str, hint: str = "") -> dict:
-        item = self.bank.upsert(index, prompt, answer, hint)
+    def admin_question_save(self, index: int, prompt: str, answer: str, hint: str = "",
+                            title: str = "", html: str = "") -> dict:
+        item = self.bank.upsert(index, prompt, answer, hint, title=title, html=html)
         rebound = self._rebind_level(int(index), item)
         return {"index": int(index), **item, "rebound_level": rebound}
 
@@ -657,7 +683,8 @@ class GameStore:
                 item["answer"], None,
                 base={**self.state["levels"][str(level)], "custom": False, "solved": False,
                       "solved_at": None, "solved_by": None, "password_set_at": now_iso()},
-                prompt=item["prompt"], hint=item.get("hint") or None, source="question",
+                prompt=item["prompt"] or None, hint=item.get("hint") or None,
+                title=item.get("title") or None, html=item.get("html") or None, source="question",
             )
             self._save(self.state)
             return level
