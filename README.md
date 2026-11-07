@@ -1,15 +1,16 @@
 # bx-game · 猜密码
 
-一个「全网共猜一个密码」的网页小游戏，Python + Flask 编写。
+一个「全网共猜一关」的解谜闯关站，Python + Flask 编写。玩法参考了逐层密码迷宫：每关一道题，答案就是密码，猜对自动进下一层。
 
 ## 游戏规则
 
-1. 后台用 `secrets` 随机生成一个密码，校验走加盐哈希（PBKDF2-HMAC-SHA256），比对用 `hmac.compare_digest`；玩家接口只见到长度。
-2. 前端唯一的提示是**密码长度**，字符范围不透露。
-3. 任意玩家猜对，当前关卡即结束，服务端自动生成新密码并进入下一关。
+1. 每一关有题面（`data/questions.json` 的第 i 题 = 第 i 关），答案就是这一关的密码；服务端只保存答案的加盐哈希，校验用 `hmac.compare_digest`。
+2. 前端把题面、答案长度显示出来，字符范围不透露；题面提示（`hint`）要玩家点「看提示」才出现，可以整体关掉（`ui.show_hint`）。
+3. 任意玩家猜对，当前关卡即结束，服务端自动开启下一关并绑定下一题。
 4. `全网总猜测` 是所有玩家共享的累计次数，本关次数单独统计。
-5. 过关进度写进签名 Cookie：**第一关没过，服务端就不会把你的请求判定到第二关**，即使你直接猜第二关的密码也算错。
-6. 密码长度按关卡递增（`level1_length` + `length_step`，上限 `length_max`）。
+5. 过关进度写进签名 Cookie：**第一关没过就打不开第二关**。每关是独立页面 `/level/N`，未解锁的页面会被服务端弹回你自己的关卡，`/api/level/N` 也直接返回 403——锁着的关卡连题面都不会下发。
+6. `/level/1` 这类已通过的关卡可以回看题面，但输入框锁定，不能再猜。
+7. 不需要题目的玩法也能切：`rounds.mode` 设为 `random` 就回到「纯随机密码 + 只给长度」，题目不够用时对应关卡也自动退回随机密码。
 
 ## 本地运行
 
@@ -36,11 +37,11 @@ python app.py run --config /path/to/config.json --host 0.0.0.0 --port 8080 --deb
 
 面板能做的事：
 
-- 看每一关的**明文密码**、长度、字符集、本关被猜次数、是否已被破解、破解时间和玩家短 id。
-- 看全网总猜测次数、最近 1 小时次数、已解开关卡数、日志里出现过的玩家数、状态文件大小。
+- 看每一关的**明文答案**、题面、长度、来源（题库/随机/管理员自定义）、本关被猜次数、是否已被破解、破解时间和玩家短 id。
+- 看全网总猜测次数、最近 1 小时次数、已解开关卡数、日志里出现过的玩家数、当前模式和题库题数、状态文件大小。
 - 看「最近尝试」日志：时间、关卡、玩家 id、提交原文、长度、是否命中。
-- 改任意一关的密码（自填明文或按字符集+长度随机重生成），改完该关自动重新开放。
-- 新增关卡（可指定数量/长度/字符集/明文密码）、把当前关卡跳到任意一关、清零本关或全网计数。
+- **管题库**：新增/编辑/删除题目（题面、答案、提示）。第 i 题就是第 i 关；改了答案会自动重绑对应关卡并把该关重新开放，删了题目后面的题往前移、多出来的关卡换成随机密码。
+- 改任意一关的答案（自填或按字符集+长度随机重生成）、按题库重新绑定某关、新增关卡、把当前关卡跳到任意一关、清零本关或全网计数。
 - 修改管理密码、退出登录。
 
 安全边界：
@@ -87,7 +88,7 @@ WantedBy=multi-user.target
 
 上线要点：
 
-- `data/` 必须持久化：`state.json` 是关卡进度（含面板要看的明文密码），`secret.key` 是 Cookie 签名密钥，`admin.json` 是管理密码哈希；换机器要一起备份。删 `secret.key` 等于所有人进度作废，删 `state.json` 等于重开第一关，删 `admin.json` 等于重新发 admin token。
+- `data/` 必须持久化：`state.json` 是关卡进度（含面板要看的明文答案），`questions.json` 是题库，`secret.key` 是 Cookie 签名密钥，`admin.json` 是管理密码哈希；换机器要一起备份。删 `secret.key` 等于所有人进度作废，删 `state.json` 等于重开第一关，删 `admin.json` 等于重新发 admin token。
 - 上了 HTTPS 就把 `config.json` 的 `security.session_secure` 设为 `true`，否则管理 Cookie 会走明文 HTTP。
 - Nginx 后面 `request.remote_addr` 是 `127.0.0.1`，登录限流会退化成「全局限流」；要么按 `X-Forwarded-For` 做 `--forwarded-allow-ips`（gunicorn `--proxy-protocol` / `ProxyFix`），要么把 `admin.login_rate_limit_per_5min` 当作全局预算来调。
 - 公网部署请调大 `hash_iterations` 或加长 `level1_length`，并把 `guess_rate_limit_per_minute` 压到个位数。
@@ -109,8 +110,11 @@ WantedBy=multi-user.target
 | `password` | `charset` | `digits` / `lower` / `upper` / `hex` / `alnum_lower` / `alnum` |
 | `password` | `level1_length` / `length_step` / `length_max` | 关卡长度曲线，即前端唯一提示 |
 | `password` | `avoid_repeats` | 禁止相邻重复字符 |
+| `rounds` | `mode` | `puzzle`（题库闯关，默认）/ `random`（纯随机密码） |
+| `rounds` | `questions_file` | 题库位置，默认 `data/questions.json`；文件不存在时用内置 5 道题 |
 | `rounds` | `max_levels` | 关卡总数，`0` 表示无限 |
 | `rounds` | `auto_advance` | 猜对后是否自动开下一关 |
+| `rounds` | `auto_redirect` | 猜对后前端是否自动跳到 `/level/N` 页面 |
 | `rounds` | `state_file` | 全局状态落盘位置 |
 | `admin` | `credentials_file` / `token_file` | 管理凭据与首次 token 的存放位置 |
 | `admin` | `min_password_length` | 管理密码最短长度（默认 8） |
@@ -123,11 +127,14 @@ WantedBy=multi-user.target
 | `ui` | `accent_color` | 主题色，默认 ChatGPT 绿 `#10a37f` |
 | `ui` | `poll_interval_ms` | 前端拉取全局进度的间隔 |
 | `ui` | `show_charset_hint` | 是否额外提示字符范围（默认关闭） |
+| `ui` | `show_hint` | 题面提示按钮是否可用（默认开启） |
 
 ## 说明
 
-- 文件结构：`app.py` 玩家路由与 Cookie 门禁，`admin.py` 管理面板与鉴权，`game.py` 密码生成/哈希/关卡状态，`wsgi.py` 生产入口，`templates/` + `static/` 前端（玩家页与管理页共用 `style.css` 的配色变量）。
-- 玩家接口 `/api/status`、`/api/guess` 只返回长度和计数，不含 `salt` / `hash` / 明文；明文密码只在 `/admin/api/overview` 里出现，且需要登录 + CSRF。
+- 路由：`/` 自己的当前关，`/level/N` 第 N 关页面（未解锁会被 302 弹回），`/api/status`、`/api/level/N`、`/api/progress` 玩家侧只读，`/api/guess` 提交答案，`/admin` 管理面板。
+- 文件结构：`app.py` 玩家路由与 Cookie 门禁，`admin.py` 管理面板与鉴权，`game.py` 题库/密码生成/哈希/关卡状态，`wsgi.py` 生产入口，`templates/` + `static/` 前端（玩家页与管理页共用 `style.css` 的配色变量）。
+- 玩家接口 `/api/status`、`/api/guess`、`/api/level/N` 只返回题面、提示、长度和计数，不含 `salt` / `hash` / 明文答案；明文答案只在 `/admin/api/overview` 里出现，且需要登录 + CSRF。
+- `data/questions.json` 不存在时用代码里内置的 5 道题起步；面板一改就会写盘。
 - 写盘用临时文件 + `os.replace` 原子替换，避免中途崩溃留下半个 JSON。
 - 界面为 ChatGPT 风格：中性灰背景、圆角气泡、底部胶囊输入框 + 绿色圆形发送按钮，深色模式跟随系统。
 - 限流按 Cookie 计数，超限返回 `429`；含空格或超长的输入直接被拒且不计入全局次数。
