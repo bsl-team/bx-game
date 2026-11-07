@@ -180,7 +180,10 @@ function renderQuestions() {
     ...data.questions.map((q) =>
       h("tr", {},
         h("td", { class: "mono", text: q.index }),
-        h("td", { class: "wrap" }, h("span", { text: q.prompt })),
+        h("td", { class: "wrap" },
+          h("span", { text: q.prompt || (q.html ? "（只有网页源码）" : "") }),
+          q.html ? h("span", { class: "tag current", text: `源码 ${q.html.length} 字符` }) : null
+        ),
         h("td", { class: "mono", text: q.answer || "（已隐藏）" }),
         h("td", { text: q.length }),
         h("td", { class: "muted wrap", text: q.hint || "–" }),
@@ -205,6 +208,8 @@ function fillQuestionForm(q) {
   $("q-prompt").value = q.prompt;
   $("q-answer").value = q.answer || "";
   $("q-hint").value = q.hint || "";
+  $("q-title").value = q.title || "";
+  $("q-html").value = q.html || "";
   $("q-answer").placeholder = q.answer ? "" : "隐藏的明文：重新输入答案即可覆盖";
   $("q-prompt").focus();
 }
@@ -296,6 +301,7 @@ function renderLevels() {
     ...data.levels.map((row) => {
       const levelCell = h("td", { class: "mono" },
         String(row.level),
+        row.has_html ? h("span", { class: "tag current", text: "网页源码" }) : null,
         row.prompt ? h("div", { class: "prompt muted wrap", text: row.prompt, title: row.prompt }) : null
       );
       const actions = [
@@ -412,8 +418,10 @@ $("question-form").addEventListener("submit", async (e) => {
       prompt: $("q-prompt").value,
       answer: $("q-answer").value.trim(),
       hint: $("q-hint").value.trim(),
+      title: $("q-title").value.trim(),
+      html: $("q-html").value,
     });
-    toast(r.message);
+    toast(r.message + ($("q-html").value.trim() ? "（该关用你写的网页源码）" : ""));
     refresh();
   } catch (err) { toast(err.message, "bad"); }
 });
@@ -423,7 +431,13 @@ $("q-clear").addEventListener("click", () => {
   $("q-prompt").value = "";
   $("q-answer").value = "";
   $("q-hint").value = "";
+  $("q-title").value = "";
+  $("q-html").value = "";
   $("q-prompt").focus();
+});
+
+$("q-preview").addEventListener("click", () => {
+  window.open(`/level/${Number($("q-index").value) || 1}`, "_blank", "noopener");
 });
 
 $("pwd-form").addEventListener("submit", async (e) => {

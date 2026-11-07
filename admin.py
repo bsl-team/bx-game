@@ -309,6 +309,8 @@ def api_questions_save():
             str(payload.get("prompt", "")),
             str(payload.get("answer", "")),
             str(payload.get("hint", "")),
+            title=str(payload.get("title", "")),
+            html=str(payload.get("html", "")),
         )
     except (TypeError, ValueError) as exc:
         return jsonify({"ok": False, "error": "invalid", "message": str(exc)}), 400

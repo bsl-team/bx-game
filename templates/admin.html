@@ -96,15 +96,22 @@
           <form id="question-form" class="stack">
             <div class="row">
               <label class="field narrow"><span>序号</span><input id="q-index" type="number" min="1" value="1" /></label>
+              <label class="field"><span>页面标题（可选）</span><input id="q-title" type="text" placeholder="浏览器标签上显示的名字" /></label>
               <label class="field"><span>答案（不含空格）</span><input id="q-answer" type="text" placeholder="例如 219845122340" /></label>
             </div>
-            <label class="field"><span>题面</span><textarea id="q-prompt" rows="2" placeholder="给玩家看的题目文字"></textarea></label>
+            <label class="field"><span>题面（纯文本，用在聊天页；填了网页源码就作为兜底文字）</span><textarea id="q-prompt" rows="2" placeholder="给玩家看的题目文字"></textarea></label>
             <label class="field"><span>提示（可选）</span><input id="q-hint" type="text" placeholder="玩家点「看提示」时才显示" /></label>
+            <label class="field">
+              <span>网页源码（可选）：整页 HTML 由你写，系统只把密码框插进
+                <code>&lt;!--bx-password--&gt;</code> 的位置；没有锚点就插到 <code>&lt;/body&gt;</code> 前面</span>
+              <textarea id="q-html" rows="12" spellcheck="false" placeholder="<!doctype html>&#10;<html>&#10;<head><meta charset='utf-8'><title>第 1 关</title></head>&#10;<body>&#10;  <h1>你自己写的关卡页</h1>&#10;  <!--bx-password-->&#10;</body>&#10;</html>"></textarea>
+            </label>
             <div class="row">
               <button class="btn primary" type="submit">保存题目</button>
               <button class="btn ghost" type="button" id="q-clear">清空/新增</button>
+              <button class="btn ghost" type="button" id="q-preview">预览这一关</button>
             </div>
-            <p class="muted">改答案会立刻重绑对应关卡，该关重新开放；删除题目后后面的题会前移，多出来的关卡自动换成随机密码。</p>
+            <p class="muted">改答案会立刻重绑对应关卡，该关重新开放；删除题目后后面的题会前移，多出来的关卡自动换成随机密码。网页源码原样输出、不转义，等于把这一关的页面完全交给你，只有管理员能写。</p>
           </form>
         </section>
 
