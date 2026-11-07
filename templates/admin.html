@@ -79,6 +79,35 @@
           </div>
         </section>
 
+        <section class="card">
+          <div class="card-head">
+            <h2>题库</h2>
+            <span class="muted" id="bank-note"></span>
+          </div>
+          <div class="table-wrap">
+            <table class="table" id="questions-table">
+              <thead>
+                <tr><th>序号=关卡</th><th>题面</th><th>答案</th><th>长度</th><th>提示</th><th class="col-actions">操作</th></tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+          <hr />
+          <form id="question-form" class="stack">
+            <div class="row">
+              <label class="field narrow"><span>序号</span><input id="q-index" type="number" min="1" value="1" /></label>
+              <label class="field"><span>答案（不含空格）</span><input id="q-answer" type="text" placeholder="例如 219845122340" /></label>
+            </div>
+            <label class="field"><span>题面</span><textarea id="q-prompt" rows="2" placeholder="给玩家看的题目文字"></textarea></label>
+            <label class="field"><span>提示（可选）</span><input id="q-hint" type="text" placeholder="玩家点「看提示」时才显示" /></label>
+            <div class="row">
+              <button class="btn primary" type="submit">保存题目</button>
+              <button class="btn ghost" type="button" id="q-clear">清空/新增</button>
+            </div>
+            <p class="muted">改答案会立刻重绑对应关卡，该关重新开放；删除题目后后面的题会前移，多出来的关卡自动换成随机密码。</p>
+          </form>
+        </section>
+
         <section class="grid-2">
           <div class="card">
             <h2>关卡管理</h2>

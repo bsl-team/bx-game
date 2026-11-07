@@ -294,7 +294,48 @@ def api_change_password():
 def api_overview():
     if not authed():
         return jsonify({"ok": False, "error": "unauthorized", "message": "请先登录"}), 401
-    return jsonify({"ok": True, "csrf": session.get("csrf"), **_ext("bx_store").admin_overview()})
+    store = _ext("bx_store")
+    return jsonify({"ok": True, "csrf": session.get("csrf"), "questions": store.admin_questions(),
+                    **store.admin_overview()})
+
+
+@bp.post("/api/questions/save")
+@require_admin
+def api_questions_save():
+    payload = body()
+    try:
+        result = _ext("bx_store").admin_question_save(
+            int(payload.get("index", 0)),
+            str(payload.get("prompt", "")),
+            str(payload.get("answer", "")),
+            str(payload.get("hint", "")),
+        )
+    except (TypeError, ValueError) as exc:
+        return jsonify({"ok": False, "error": "invalid", "message": str(exc)}), 400
+    where = f"，第 {result['rebound_level']} 关已同步重绑" if result["rebound_level"] else "，该关尚未生成"
+    return jsonify({"ok": True, "message": f"第 {result['index']} 题已保存{where}", **result})
+
+
+@bp.post("/api/questions/delete")
+@require_admin
+def api_questions_delete():
+    try:
+        result = _ext("bx_store").admin_question_delete(int(body().get("index", 0)))
+    except (TypeError, ValueError) as exc:
+        return jsonify({"ok": False, "error": "invalid", "message": str(exc)}), 400
+    return jsonify({"ok": True, "message": f"第 {result['index']} 题已删除，后面的题自动前移", **result})
+
+
+@bp.post("/api/level/rebind")
+@require_admin
+def api_level_rebind():
+    try:
+        result = _ext("bx_store").admin_rebind_level(int(body().get("level", 0)))
+    except (TypeError, ValueError) as exc:
+        return jsonify({"ok": False, "error": "invalid", "message": str(exc)}), 400
+    except KeyError:
+        return jsonify({"ok": False, "error": "no_level", "message": "这一关还不存在"}), 404
+    return jsonify({"ok": True, "message": f"第 {result['level']} 关已按题库重绑", **result})
 
 
 @bp.post("/api/level/password")

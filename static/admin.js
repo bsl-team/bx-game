@@ -155,6 +155,7 @@ function renderKpis() {
     ["最近 1 小时", data.guesses_last_hour.toLocaleString("zh-CN")],
     ["已解开关卡", `${data.solved_levels} / ${data.levels.length}`],
     ["日志内玩家", data.distinct_players],
+    ["模式 / 题库", `${data.mode} · ${data.questions_count} 题`],
     ["状态文件", fmtBytes(data.state_size_bytes)],
   ];
   $("kpis").replaceChildren(
@@ -163,8 +164,49 @@ function renderKpis() {
     )
   );
   $("reveal-note").textContent = data.reveal_passwords
-    ? "明文密码保存在 data/state.json，只显示给登录后的管理员"
+    ? "明文答案保存在 data/state.json，只显示给登录后的管理员"
     : "admin.reveal_passwords=false：明文已不显示、也不再写入文件";
+  $("bank-note").textContent = `题库文件 ${data.question_source}（第 i 题 = 第 i 关）`;
+  renderQuestions();
+}
+
+function renderQuestions() {
+  const tbody = $("questions-table").querySelector("tbody");
+  if (!data.questions.length) {
+    tbody.replaceChildren(h("tr", {}, h("td", { colspan: 6, class: "muted", text: "题库是空的，puzzle 模式下关卡会退回随机密码" })));
+    return;
+  }
+  tbody.replaceChildren(
+    ...data.questions.map((q) =>
+      h("tr", {},
+        h("td", { class: "mono", text: q.index }),
+        h("td", { class: "wrap" }, h("span", { text: q.prompt })),
+        h("td", { class: "mono", text: q.answer || "（已隐藏）" }),
+        h("td", { text: q.length }),
+        h("td", { class: "muted wrap", text: q.hint || "–" }),
+        h("td", { class: "col-actions" }, h("div", { class: "actions" },
+          h("button", { class: "btn mini", type: "button", text: "编辑", onclick: () => fillQuestionForm(q) }),
+          h("button", { class: "btn mini danger", type: "button", text: "删除", onclick: async () => {
+            if (!confirm(`删除第 ${q.index} 题？后面的题会前移，第 ${q.index} 关会跟着重绑或转随机。`)) return;
+            try {
+              const r = await request("questions/delete", { index: q.index });
+              toast(r.message);
+              refresh();
+            } catch (err) { toast(err.message, "bad"); }
+          } })
+        ))
+      )
+    )
+  );
+}
+
+function fillQuestionForm(q) {
+  $("q-index").value = q.index;
+  $("q-prompt").value = q.prompt;
+  $("q-answer").value = q.answer || "";
+  $("q-hint").value = q.hint || "";
+  $("q-answer").placeholder = q.answer ? "" : "隐藏的明文：重新输入答案即可覆盖";
+  $("q-prompt").focus();
 }
 
 function passwordCell(row) {
@@ -252,27 +294,41 @@ function renderLevels() {
   const tbody = $("levels-table").querySelector("tbody");
   tbody.replaceChildren(
     ...data.levels.map((row) => {
+      const levelCell = h("td", { class: "mono" },
+        String(row.level),
+        row.prompt ? h("div", { class: "prompt muted wrap", text: row.prompt, title: row.prompt }) : null
+      );
+      const actions = [
+        h("button", { class: "btn mini", type: "button", text: "改密码", onclick: () => { editor = { level: row.level, mode: "set" }; renderLevels(); } }),
+        h("button", { class: "btn mini", type: "button", text: "随机重生成", onclick: () => { editor = { level: row.level, mode: "gen" }; renderLevels(); } }),
+      ];
+      if (row.source === "question") {
+        actions.unshift(h("button", { class: "btn mini primary", type: "button", text: "按题库重绑", onclick: async () => {
+          try {
+            const r = await request("level/rebind", { level: row.level });
+            toast(`${r.message}：答案 ${r.password || "（已隐藏）"}，${r.length} 位`);
+            editor = null;
+            refresh();
+          } catch (err) { toast(err.message, "bad"); }
+        } }));
+      }
+      actions.push(h("button", { class: "btn mini ghost", type: "button", text: "清零本关", onclick: async () => {
+        try {
+          await request("counters/reset", { level: row.level });
+          toast(`第 ${row.level} 关计数已清零`);
+          refresh();
+        } catch (err) { toast(err.message, "bad"); }
+      } }));
       const tr = h("tr", {},
-        h("td", { class: "mono", text: `${row.level}` }),
+        levelCell,
         passwordCell(row),
         h("td", { text: row.length ?? "–" }),
-        h("td", { class: "muted", text: row.charset || "–" }),
+        h("td", { class: "muted", text: row.source === "question" ? "题库答案" : row.charset || "–" }),
         h("td", { text: row.guesses.toLocaleString("zh-CN") }),
         statusCell(row),
         h("td", { class: "muted", text: fmtTime(row.password_set_at || row.created_at) }),
-        h("td", { class: "col-actions" }, h("div", { class: "actions" },
-          h("button", { class: "btn mini", type: "button", text: "改密码", onclick: () => { editor = { level: row.level, mode: "set" }; renderLevels(); } }),
-          h("button", { class: "btn mini", type: "button", text: "随机重生成", onclick: () => { editor = { level: row.level, mode: "gen" }; renderLevels(); } }),
-          h("button", { class: "btn mini ghost", type: "button", text: "清零本关", onclick: async () => {
-            try {
-              await request("counters/reset", { level: row.level });
-              toast(`第 ${row.level} 关计数已清零`);
-              refresh();
-            } catch (err) { toast(err.message, "bad"); }
-          } })
-        ))
+        h("td", { class: "col-actions" }, h("div", { class: "actions" }, actions))
       );
-      if (editor && editor.level === row.level) tr.classList.add("editing");
       const rows = [tr];
       if (editor && editor.level === row.level) rows.push(h("tr", { class: "editor" }, editorRow(row)));
       return rows;
@@ -346,6 +402,28 @@ $("reset-form").addEventListener("submit", async (e) => {
     toast("计数已清零");
     refresh();
   } catch (err) { toast(err.message, "bad"); }
+});
+
+$("question-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  try {
+    const r = await request("questions/save", {
+      index: Number($("q-index").value),
+      prompt: $("q-prompt").value,
+      answer: $("q-answer").value.trim(),
+      hint: $("q-hint").value.trim(),
+    });
+    toast(r.message);
+    refresh();
+  } catch (err) { toast(err.message, "bad"); }
+});
+
+$("q-clear").addEventListener("click", () => {
+  $("q-index").value = (data.questions.length + 1) || 1;
+  $("q-prompt").value = "";
+  $("q-answer").value = "";
+  $("q-hint").value = "";
+  $("q-prompt").focus();
 });
 
 $("pwd-form").addEventListener("submit", async (e) => {
