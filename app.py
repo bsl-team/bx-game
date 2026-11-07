@@ -8,7 +8,7 @@ import time
 from datetime import timedelta
 from pathlib import Path
 
-from flask import Flask, jsonify, render_template, request, session
+from flask import Flask, jsonify, redirect, render_template, request, session, url_for
 
 from admin import AdminAuth, bp
 from game import ROOT, GameStore, RateLimiter
@@ -36,7 +36,14 @@ DEFAULTS = {
         "length_max": 8,
         "avoid_repeats": True,
     },
-    "rounds": {"max_levels": 0, "auto_advance": True, "state_file": "data/state.json"},
+    "rounds": {
+        "mode": "puzzle",
+        "max_levels": 0,
+        "auto_advance": True,
+        "auto_redirect": True,
+        "state_file": "data/state.json",
+        "questions_file": "data/questions.json",
+    },
     "admin": {
         "credentials_file": "data/admin.json",
         "token_file": "data/admin_token.txt",
@@ -56,6 +63,7 @@ DEFAULTS = {
         "theme": "chatgpt",
         "poll_interval_ms": 2500,
         "show_charset_hint": False,
+        "show_hint": True,
         "max_chat_messages": 60,
         "footer_text": "",
     },
@@ -148,13 +156,42 @@ def create_app(cfg: dict) -> Flask:
             resp.headers["X-Robots-Tag"] = "noindex, nofollow"
         return resp
 
-    @app.get("/")
-    def index():
+    def render_level_page(page_level: int | None):
         session.permanent = True
         player_id()
         ui = dict(cfg["ui"])
         ui["rate_limit_per_minute"] = int(sec["guess_rate_limit_per_minute"])
-        return render_template("index.html", ui=ui, cfg=cfg)
+        ui["auto_redirect"] = bool(cfg["rounds"].get("auto_redirect", True))
+        return render_template("index.html", ui=ui, cfg=cfg, page_level=page_level)
+
+    @app.get("/")
+    def index():
+        return render_level_page(None)
+
+    @app.get("/level/<int:page_level>")
+    def level_page(page_level: int):
+        """Locked levels bounce back to the player's own level, like the reference site."""
+        if page_level < 1:
+            return render_level_page(None)
+        own = min(cleared_levels() + 1, store.status(cleared_levels())["global_level"])
+        if page_level > own:
+            return redirect(url_for("level_page", page_level=own) if own > 1 else url_for("index"))
+        return render_level_page(page_level)
+
+    @app.get("/api/progress")
+    def api_progress():
+        return jsonify(store.progress(cleared_levels()))
+
+    @app.get("/api/level/<int:level>")
+    def api_level(level: int):
+        try:
+            return jsonify(store.level_view(level, cleared_levels()))
+        except PermissionError:
+            return jsonify({"ok": False, "error": "locked",
+                            "message": "这一关还没解锁，先过前面的关。",
+                            "own_level": min(cleared_levels() + 1, store.status(cleared_levels())["global_level"])}), 403
+        except KeyError:
+            return jsonify({"ok": False, "error": "no_level", "message": "这一关还不存在"}), 404
 
     @app.get("/api/status")
     def api_status():
@@ -163,6 +200,7 @@ def create_app(cfg: dict) -> Flask:
         status["guesses_left_this_minute"] = limiter.remaining(pid)
         status["rate_limit_per_minute"] = int(sec["guess_rate_limit_per_minute"])
         status["poll_interval_ms"] = int(cfg["ui"]["poll_interval_ms"])
+        status["auto_redirect"] = bool(cfg["rounds"].get("auto_redirect", True))
         status["server_time"] = time.time()
         return jsonify(status)
 
