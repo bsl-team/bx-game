@@ -33,9 +33,12 @@
     "avoid_repeats": true
   },
   "rounds": {
+    "mode": "puzzle",
     "max_levels": 0,
     "auto_advance": true,
-    "state_file": "data/state.json"
+    "auto_redirect": true,
+    "state_file": "data/state.json",
+    "questions_file": "data/questions.json"
   },
   "admin": {
     "credentials_file": "data/admin.json",
@@ -56,6 +59,7 @@
     "theme": "chatgpt",
     "poll_interval_ms": 2500,
     "show_charset_hint": false,
+    "show_hint": true,
     "max_chat_messages": 60,
     "footer_text": "服务端只保存密码哈希，前端只显示密码长度。"
   }
