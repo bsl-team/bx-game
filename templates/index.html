@@ -9,7 +9,7 @@
       window.BX_UI = {{ ui | tojson }};
     </script>
   </head>
-  <body data-theme="{{ ui.theme }}">
+  <body data-theme="{{ ui.theme }}" data-level="{{ page_level if page_level is not none else '' }}">
     <header class="topbar">
       <div class="topbar-inner">
         <div class="brand">
@@ -27,6 +27,22 @@
         </div>
       </div>
     </header>
+
+    <section class="riddle" id="riddle" hidden>
+      <div class="riddle-inner">
+        <div class="riddle-head">
+          <span class="riddle-level" id="riddle-level"></span>
+          <span class="riddle-tag" id="riddle-tag"></span>
+        </div>
+        <p class="riddle-text" id="riddle-text"></p>
+        <div class="riddle-meta">
+          <span class="chip" id="riddle-length"></span>
+          <button class="btn ghost mini" id="hint-btn" type="button" hidden>看提示</button>
+          <span class="chip hint" id="riddle-hint" hidden></span>
+        </div>
+        <nav class="levels-nav" id="levels-nav" aria-label="关卡导航"></nav>
+      </div>
+    </section>
 
     <main class="chat" id="chat" aria-live="polite"></main>
 

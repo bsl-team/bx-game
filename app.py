@@ -8,9 +8,10 @@ import time
 from datetime import timedelta
 from pathlib import Path
 
-from flask import Flask, jsonify, render_template, request, session
+from flask import Flask, Response, jsonify, redirect, render_template, request, session, url_for
 
-from game import ROOT, GameStore, RateLimiter
+from admin import AdminAuth, bp
+from game import ROOT, GameStore, RateLimiter, inject_password_widget
 
 DEFAULTS = {
     "server": {"host": "127.0.0.1", "port": 5000, "debug": False},
@@ -35,7 +36,26 @@ DEFAULTS = {
         "length_max": 8,
         "avoid_repeats": True,
     },
-    "rounds": {"max_levels": 0, "auto_advance": True, "state_file": "data/state.json"},
+    "rounds": {
+        "mode": "puzzle",
+        "max_levels": 0,
+        "auto_advance": True,
+        "auto_redirect": True,
+        "state_file": "data/state.json",
+        "questions_file": "data/questions.json",
+    },
+    "admin": {
+        "credentials_file": "data/admin.json",
+        "token_file": "data/admin_token.txt",
+        "session_max_age_seconds": 1800,
+        "hash_iterations": 200000,
+        "min_password_length": 8,
+        "login_rate_limit_per_5min": 10,
+        "login_min_interval_ms": 800,
+        "reveal_passwords": True,
+        "log_guess_text": True,
+        "guess_log_size": 500,
+    },
     "ui": {
         "title": "猜密码",
         "subtitle": "",
@@ -43,6 +63,7 @@ DEFAULTS = {
         "theme": "chatgpt",
         "poll_interval_ms": 2500,
         "show_charset_hint": False,
+        "show_hint": True,
         "max_chat_messages": 60,
         "footer_text": "",
     },
@@ -101,8 +122,22 @@ def create_app(cfg: dict) -> Flask:
 
     store = GameStore(cfg)
     limiter = RateLimiter(cfg)
+    admin_cfg = cfg["admin"]
+    admin_limiter = RateLimiter(
+        cfg,
+        limit=int(admin_cfg.get("login_rate_limit_per_5min", 10)),
+        window=300.0,
+        min_interval_ms=int(admin_cfg.get("login_min_interval_ms", 800)),
+    )
+    app.extensions["bx_cfg"] = cfg
     app.extensions["bx_store"] = store
     app.extensions["bx_limiter"] = limiter
+    app.extensions["bx_admin"] = AdminAuth(cfg)
+    app.extensions["bx_admin_limiter"] = admin_limiter
+    app.register_blueprint(bp)
+
+    if not admin_cfg.get("reveal_passwords", True):
+        store.admin_purge_plaintext()
 
     def player_id() -> str:
         pid = session.get("pid")
@@ -117,15 +152,64 @@ def create_app(cfg: dict) -> Flask:
     @app.after_request
     def no_cache(resp):
         resp.headers["Cache-Control"] = "no-store"
+        if request.path.startswith("/admin"):
+            resp.headers["X-Robots-Tag"] = "noindex, nofollow"
         return resp
+
+    def widget_html(view: dict) -> str:
+        return render_template(
+            "widget.html",
+            view=view,
+            ui=cfg["ui"],
+            auto_redirect=bool(cfg["rounds"].get("auto_redirect", True)),
+            next_level=view["level"] + 1,
+        )
+
+    def render_level_page(page_level: int | None):
+        session.permanent = True
+        player_id()
+        cleared = cleared_levels()
+        ui = dict(cfg["ui"])
+        ui["rate_limit_per_minute"] = int(sec["guess_rate_limit_per_minute"])
+        ui["auto_redirect"] = bool(cfg["rounds"].get("auto_redirect", True))
+        target = page_level if page_level is not None else min(cleared + 1, store.status(cleared)["global_level"])
+        try:
+            view = store.level_view(target, cleared)
+        except (PermissionError, KeyError):
+            view = None
+        # 站长自己写好的网页源码：我们只往里面插一个密码框
+        if view and view.get("html"):
+            return Response(inject_password_widget(view["html"], widget_html(view)), mimetype="text/html")
+        return render_template("index.html", ui=ui, cfg=cfg, page_level=page_level, view=view)
 
     @app.get("/")
     def index():
-        session.permanent = True
-        player_id()
-        ui = dict(cfg["ui"])
-        ui["rate_limit_per_minute"] = int(sec["guess_rate_limit_per_minute"])
-        return render_template("index.html", ui=ui, cfg=cfg)
+        return render_level_page(None)
+
+    @app.get("/level/<int:page_level>")
+    def level_page(page_level: int):
+        """Locked levels bounce back to the player's own level, like the reference site."""
+        if page_level < 1:
+            return render_level_page(None)
+        own = min(cleared_levels() + 1, store.status(cleared_levels())["global_level"])
+        if page_level > own:
+            return redirect(url_for("level_page", page_level=own) if own > 1 else url_for("index"))
+        return render_level_page(page_level)
+
+    @app.get("/api/progress")
+    def api_progress():
+        return jsonify(store.progress(cleared_levels()))
+
+    @app.get("/api/level/<int:level>")
+    def api_level(level: int):
+        try:
+            return jsonify(store.level_view(level, cleared_levels()))
+        except PermissionError:
+            return jsonify({"ok": False, "error": "locked",
+                            "message": "这一关还没解锁，先过前面的关。",
+                            "own_level": min(cleared_levels() + 1, store.status(cleared_levels())["global_level"])}), 403
+        except KeyError:
+            return jsonify({"ok": False, "error": "no_level", "message": "这一关还不存在"}), 404
 
     @app.get("/api/status")
     def api_status():
@@ -134,6 +218,7 @@ def create_app(cfg: dict) -> Flask:
         status["guesses_left_this_minute"] = limiter.remaining(pid)
         status["rate_limit_per_minute"] = int(sec["guess_rate_limit_per_minute"])
         status["poll_interval_ms"] = int(cfg["ui"]["poll_interval_ms"])
+        status["auto_redirect"] = bool(cfg["rounds"].get("auto_redirect", True))
         status["server_time"] = time.time()
         return jsonify(status)
 
@@ -168,7 +253,10 @@ def create_app(cfg: dict) -> Flask:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="bx-game 猜密码小游戏")
-    parser.add_argument("command", nargs="?", default="run", choices=["run", "reset", "status"])
+    parser.add_argument(
+        "command", nargs="?", default="run",
+        choices=["run", "reset", "status", "admin-token", "admin-reset"],
+    )
     parser.add_argument("--config", type=Path, default=None)
     parser.add_argument("--host", default=None)
     parser.add_argument("--port", type=int, default=None)
@@ -183,20 +271,26 @@ def main() -> None:
     if args.command == "status":
         print(json.dumps(GameStore(cfg).status(0), ensure_ascii=False, indent=2))
         return
+    if args.command in ("admin-token", "admin-reset"):
+        auth = AdminAuth(cfg)
+        if args.command == "admin-token":
+            token = auth.bootstrap_token()
+            print(token or "管理密码已设置，token 不可用；需要重新发放请用 `python app.py admin-reset`")
+        else:
+            print(f"已作废旧密码，新 admin token: {auth.rotate_token()}")
+        return
 
     host = args.host or cfg["server"]["host"]
     port = args.port or int(cfg["server"]["port"])
     debug = bool(args.debug or cfg["server"]["debug"])
     app = create_app(cfg)
-    print(f"猜密码小游戏 → http://{host}:{port}/  (关卡: 全局第 {store_level(cfg)} 关)")
+    print(f"猜密码小游戏 → http://{host}:{port}/  管理面板 /admin  "
+          f"(当前第 {app.extensions['bx_store'].status(0)['global_level']} 关)")
+    token = app.extensions["bx_admin"].bootstrap_token()
+    if token:
+        print(f"首次启动 admin token: {token}")
+        print(f"（也写在 {ROOT / cfg['admin']['token_file']}）在 /admin 输入它来设置管理密码，设置后 token 立即作废。")
     app.run(host=host, port=port, debug=debug, threaded=True)
-
-
-def store_level(cfg: dict) -> int:
-    try:
-        return GameStore(cfg).status(0)["global_level"]
-    except Exception:
-        return "?"
 
 
 if __name__ == "__main__":
