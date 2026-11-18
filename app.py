@@ -1,11 +1,12 @@
-"""bx-game：没有管理界面的极简密码迷宫。
+"""bx-game：和参考站一样没有管理界面的极简密码迷宫。
 
-页面全是纯 HTML：index.html 是入口，levels/stepN.html 是每一层（站长自己写），
-guard.js 负责藏页面和校验进度，答案只在服务端的 data/answers.json 里。
+首页 index.html 用 hashStrong 做快捷跳转；copyspace/stepN.html 是每一层（站长自己写），
+copyspace/guard.js 负责藏页面和校验进度，答案只在服务端的 data/answers.json 里。
 """
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import secrets as pysecrets
 from datetime import timedelta
@@ -31,7 +32,7 @@ DEFAULTS = {
     "game": {
         "answers_file": "data/answers.json",
         "state_file": "data/state.json",
-        "levels_dir": "levels",
+        "copyspace_dir": "copyspace",
         "log_size": 200,
     },
 }
@@ -90,7 +91,7 @@ def create_app(cfg: dict) -> Flask:
     book = AnswerBook(cfg)
     store = GameState(cfg, book)
     limiter = RateLimiter(cfg)
-    levels_dir = ROOT / str(cfg["game"].get("levels_dir", "levels"))
+    levels_dir = ROOT / str(cfg["game"].get("copyspace_dir", "copyspace"))
     max_guess_length = int(sec.get("max_guess_length", 64))
     app.extensions["bx_cfg"] = cfg
     app.extensions["bx_store"] = store
@@ -121,17 +122,12 @@ def create_app(cfg: dict) -> Flask:
     def index():
         return send_from_directory(ROOT, "index.html")
 
-    @app.get("/guard.js")
-    def guard_js():
-        return send_from_directory(ROOT, "guard.js", mimetype="text/javascript")
+    @app.get("/hash/<path:name>")
+    def hash_file(name: str):
+        return send_from_directory(ROOT / "hash", name)
 
-    @app.get("/step/<int:step>")
-    def step_page(step: int):
-        if step < 1:
-            return Response("这一层不存在。", status=404, mimetype="text/plain")
-        name = f"step{step}.html"
-        if not (levels_dir / name).is_file():
-            return Response("这一层还没有页面。", status=404, mimetype="text/plain")
+    @app.get("/copyspace/<path:name>")
+    def copyspace_file(name: str):
         return send_from_directory(levels_dir, name)
 
     @app.get("/api/progress")
@@ -180,7 +176,7 @@ def print_status(cfg: dict) -> None:
     book = AnswerBook(cfg)
     store = GameState(cfg, book)
     snap = store.snapshot()
-    levels_dir = ROOT / str(cfg["game"].get("levels_dir", "levels"))
+    levels_dir = ROOT / str(cfg["game"].get("copyspace_dir", "copyspace"))
     print(f"当前关卡: {snap['current_step']} / 共 {snap['total_levels']} 关")
     print(f"全网总猜测: {snap['total_guesses']}")
     for row in snap["levels"]:
@@ -188,7 +184,7 @@ def print_status(cfg: dict) -> None:
         print(f"{row['level']}  答案={row['answer']}  本关猜测={row['guesses']}  "
               f"已破解={'是' if row['solved'] else '否'}  页面={page}")
     if snap["total_levels"] == 0:
-        print("（还没有关卡：往 data/answers.json 写答案，再建 levels/stepN.html）")
+        print("（还没有关卡：往 data/answers.json 写答案，再建 copyspace/stepN.html）")
 
 
 def print_log(cfg: dict, count: int = 30) -> None:
@@ -209,9 +205,9 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="bx-game 极简密码迷宫（无管理界面）")
     parser.add_argument(
         "command", nargs="?", default="run",
-        choices=["run", "status", "reset", "goto", "set-answer", "log"],
+        choices=["run", "status", "reset", "goto", "set-answer", "log", "hash"],
     )
-    parser.add_argument("args", nargs="*", help="goto <关卡> / set-answer <关卡> <答案> / log [条数]")
+    parser.add_argument("args", nargs="*", help="goto <关卡> / set-answer <关卡> <答案> / log [条数] / hash <文本>")
     parser.add_argument("--config", type=Path, default=None)
     parser.add_argument("--host", default=None)
     parser.add_argument("--port", type=int, default=None)
@@ -225,6 +221,11 @@ def main() -> None:
         return
     if args.command == "log":
         print_log(cfg, int(args.args[0]) if args.args else 30)
+        return
+    if args.command == "hash":
+        if not args.args:
+            raise SystemExit("用法: python app.py hash <文本>")
+        print(hashlib.sha256(args.args[0].encode("utf-8")).hexdigest())
         return
     if args.command == "reset":
         book = AnswerBook(cfg)
@@ -249,7 +250,7 @@ def main() -> None:
         book = AnswerBook(cfg)
         answer = book.set_answer(level, args.args[1])
         GameState(cfg, book).reset_solved(level)
-        levels_dir = ROOT / str(cfg["game"].get("levels_dir", "levels"))
+        levels_dir = ROOT / str(cfg["game"].get("copyspace_dir", "copyspace"))
         print(f"第 {level} 关答案已写入（{len(answer)} 个字符）。")
         if not (levels_dir / f"step{level}.html").is_file():
             print(f"提醒：{levels_dir.name}/step{level}.html 不存在，这一关会 404。")
@@ -263,7 +264,7 @@ def main() -> None:
     total = app.extensions["bx_book"].total_levels()
     current = app.extensions["bx_store"].snapshot()["current_step"]
     print(f"bx-game → http://{host}:{port}/  第 {current} 关 / 共 {total} 关")
-    print("没有管理界面：改 data/answers.json、levels/stepN.html，或用 python app.py status")
+    print("没有管理界面：改 data/answers.json、copyspace/stepN.html，或用 python app.py status")
     app.run(host=host, port=port, debug=debug, threaded=True)
 
 

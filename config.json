@@ -16,7 +16,7 @@
   "game": {
     "answers_file": "data/answers.json",
     "state_file": "data/state.json",
-    "levels_dir": "levels",
+    "copyspace_dir": "copyspace",
     "log_size": 200
   }
 }

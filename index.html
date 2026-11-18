@@ -2,112 +2,34 @@
 <html>
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>bx-game</title>
+  <title>我的极简网站</title>
+  <script src="./hash/hashp.js"></script>
 </head>
 <body>
-  <h1>bx-game</h1>
-  <h2>全网共猜一关</h2>
-  <input type="text" id="txt" placeholder="输入本关密码" autocomplete="off">
-  <button id="go" onclick="submitPwd()">完成</button>
+  <h1>Hello world!</h1>
+  <h2>这里是密码迷宫</h2>
+  <input type="text" id="txt" placeholder="快捷跳转">
+  <button onclick="testHash()">完成</button>
   <p id="result"></p>
-  <p id="status">加载中…</p>
-  <ul>
-    <li>所有玩家共用同一关，任何人猜对，全网进入下一关。</li>
-    <li>答案就是密码，区分大小写。</li>
-    <li><a id="levelLink" href="/step/1">进入当前关卡</a></li>
-  </ul>
   <script>
-  var ownStep = null;
-  var finished = false;
-
-  function show(text) {
-    document.getElementById("result").textContent = text;
-  }
-
-  function setEnabled(enabled) {
-    document.getElementById("txt").disabled = !enabled;
-    document.getElementById("go").disabled = !enabled;
-  }
-
-  async function loadProgress() {
-    try {
-      var res = await fetch("/api/progress", {
-        cache: "no-store",
-        credentials: "same-origin",
-        headers: { Accept: "application/json" }
-      });
-      var data = await res.json();
-      if (!res.ok) { show("进度加载失败。"); return; }
-      finished = !!data.finished;
-      ownStep = Number.isInteger(data.step) ? data.step : null;
-      var status = document.getElementById("status");
-      var link = document.getElementById("levelLink");
-      if (!data.total_levels) {
-        status.textContent = "还没有配置关卡。";
-        link.style.display = "none";
-        setEnabled(false);
-        return;
-      }
-      if (finished) {
-        status.textContent = "全部关卡已通过。";
-        link.style.display = "none";
-        setEnabled(false);
-        return;
-      }
-      var globalText = data.global_step > data.total_levels
-        ? "已通关"
-        : "第 " + data.global_step + " 关";
-      status.textContent = "你：第 " + ownStep + " 关 · 全网：" + globalText +
-        " · 全网已猜 " + data.total_guesses + " 次";
-      link.href = "/step/" + ownStep;
-      link.textContent = "进入第 " + ownStep + " 关";
-      setEnabled(true);
-    } catch (err) {
-      show("进度加载失败：" + err.message);
+  async function testHash() {
+    const text = document.getElementById("txt").value;
+    const hash = await hashStrong(text);
+    if (hash === "384fde3636e6e01e0194d2976d8f26410af3e846e573379cb1a09e2f0752d8cc") {
+      window.location.href = "copyspace/step1.html";
+    }
+    if (hash === "7f02ef673724a099adf3e15c82b74068f48444009f3bbf3725a1cd48845176fe") {
+      window.location.href = "copyspace/step2.html";
+    }
+    if (hash === "b7ab30a912521ac36e433a5cfc8b5c1037884487af45ae5311ced235ee77faef") {
+      window.location.href = "copyspace/step5.html";
     }
   }
-
-  async function submitPwd() {
-    if (finished) { show("全部关卡已通过。"); return; }
-    if (!ownStep) { show("现在没有可提交的关卡。"); return; }
-    var password = document.getElementById("txt").value;
-    if (!password) { show("请输入密码。"); return; }
-    try {
-      var res = await fetch("/api/answer", {
-        method: "POST",
-        credentials: "same-origin",
-        cache: "no-store",
-        headers: { "Content-Type": "application/json", Accept: "application/json" },
-        body: JSON.stringify({ step: ownStep, password: password })
-      });
-      var data = await res.json();
-      if (res.ok && data.ok && data.next) { location.href = data.next; return; }
-      if (res.ok && data.ok && data.finished) {
-        show(data.message || "全部关卡已通过。");
-        loadProgress();
-        return;
-      }
-      if (data.restart) {
-        show(data.message || "请回到入口。");
-        setTimeout(function () { location.href = data.restart; }, 700);
-        return;
-      }
-      if (Number.isInteger(data.currentStep)) {
-        show(data.message || "你不在这一关。");
-        setTimeout(function () { location.href = "/step/" + data.currentStep; }, 700);
-        return;
-      }
-      show(data.message || "密码不对。");
-    } catch (err) {
-      show("提交失败：" + err.message);
-    }
-  }
-
-  document.getElementById("txt").addEventListener("keydown", function (event) {
-    if (event.key === "Enter") { submitPwd(); }
-  });
-  loadProgress();
   </script>
+  <ul>
+    <li>密码迷宫:114514</li>
+    <li>第二层:1919810</li>
+    <li>最后一层:1145141919810</li>
+  </ul>
 </body>
 </html>

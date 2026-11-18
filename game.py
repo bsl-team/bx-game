@@ -12,7 +12,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
 
-# 首次启动没有 data/answers.json 时用这 5 层起步，和 levels/step1-5.html 对应。
+# 首次启动没有 data/answers.json 时用这 5 层起步，和 copyspace/step1-5.html 对应。
 DEFAULT_ANSWERS = {
     "1": "219845122340",
     "2": "nbaf",
@@ -168,7 +168,7 @@ class GameState:
             finished = total == 0 or own > total
             return {
                 "ok": True,
-                "step": None if finished else own,
+                "step": own,
                 "cleared": max(0, int(cleared)),
                 "global_step": global_step,
                 "total_levels": total,
@@ -181,10 +181,10 @@ class GameState:
             total = self.book.total_levels()
             own = self._own_step(cleared, total)
             if total == 0:
-                return {"ok": False, "error": "no_levels", "restart": "/",
+                return {"ok": False, "error": "no_levels",
                         "message": "还没有配置关卡。"}
             if own > total:
-                return {"ok": False, "error": "finished", "restart": "/",
+                return {"ok": False, "error": "finished",
                         "message": "全部关卡已通过。"}
             if step != own:
                 return {"ok": False, "error": "wrong_step", "currentStep": own,
@@ -230,7 +230,7 @@ class GameState:
                     result["finished"] = True
                     result["message"] = "正确！全部关卡已通过。"
                 else:
-                    result["next"] = f"/step/{next_step}"
+                    result["next"] = f"/copyspace/step{next_step}.html"
                     result["message"] = f"正确！进入第 {next_step} 层。"
             else:
                 result["message"] = "密码不对。"
