@@ -28,24 +28,8 @@ STEP_TEMPLATE = """<!doctype html>
 <head>
 <meta charset="utf-8">
 <title>{title}</title>
-<script src="../hash/hashp.js"></script>
-<style>html {{ visibility: hidden; }}</style>
-<script src="guard.js"></script>
 </head>
 <body>
-<script>CopyspaceGuard.enter({level});</script>
-<h2>请输入第 {level} 层密码：</h2>
-<input type="password" id="pwd">
-<button onclick="next()">进入下一步</button>
-<p id="msg"></p>
-
-<script>
-async function next() {{
-  const pwd = document.getElementById("pwd").value;
-  await CopyspaceGuard.submit({level}, pwd);
-}}
-</script>
-
 {body}
 </body>
 </html>
@@ -209,7 +193,6 @@ def write_level_page(level: int, title: str, body: str) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     source = STEP_TEMPLATE.format(
         title=html.escape(title or f"Step {int(level)}", quote=True),
-        level=int(level),
         body=body,
     )
     tmp = path.with_suffix(".html.tmp")

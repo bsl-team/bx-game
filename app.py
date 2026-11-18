@@ -1,22 +1,22 @@
-"""bx-game：纯 HTML 密码迷宫 + 独立管理后台。
+"""bx-game：没有主页的密码迷宫。
 
-首页 index.html 用 hashStrong 做快捷跳转；copyspace/stepN.html 是每一层（站长自己写），
-copyspace/guard.js 负责藏页面和校验进度，答案只在服务端的 data/answers.json 里。
-管理页面在 /admin，密码登录，前端页面不受影响。
+访问 / 会直接跳到玩家自己的当前关卡；关卡页完全是站长自己的 HTML，
+服务端只往页面里插一个密码框和「上一关 / 下一关」两个按钮。
+答案只在服务端的 data/answers.json 里，管理页面在 /admin。
 """
 from __future__ import annotations
 
 import argparse
 import getpass
-import hashlib
 import json
+import re
 import secrets as pysecrets
 from datetime import timedelta
 from pathlib import Path
 
-from flask import Flask, Response, jsonify, request, send_from_directory, session
+from flask import Flask, Response, redirect, request, send_from_directory, session
 
-from admin import AdminAuth, bp as admin_bp
+from admin import AdminAuth, authed as admin_authed, bp as admin_bp
 from game import ROOT, AnswerBook, GameState, RateLimiter
 
 DEFAULTS = {
@@ -47,6 +47,47 @@ DEFAULTS = {
         "login_min_interval_ms": 800,
     },
 }
+
+CONTROL_ANCHOR = "<!--bx-controls-->"
+CONTROL_ERRORS = {
+    "wrong": "密码不对。",
+    "slow": "猜得太快了，请稍后再试。",
+    "empty": "请输入密码。",
+    "toolong": "密码太长了。",
+}
+
+
+def controls_html(level: int, error: str | None = None) -> str:
+    """插进关卡页的固定控件：一个密码框 + 上一关 / 下一关。"""
+    message = CONTROL_ERRORS.get(error or "")
+    if level > 1:
+        prev = (f'<button type="button" '
+                f'onclick="location.href=\'/copyspace/step{level - 1}.html\'">上一关</button>')
+    else:
+        prev = '<button type="button" disabled>上一关</button>'
+    parts = [
+        '<form class="bx-controls" method="post" action="/api/answer">',
+        f'<input type="hidden" name="step" value="{int(level)}">',
+    ]
+    if message:
+        parts.append(f"<p>{message}</p>")
+    parts += [
+        '<input type="password" name="password" placeholder="密码" autocomplete="off" required>',
+        prev,
+        '<button type="submit">下一关</button>',
+        "</form>",
+    ]
+    return "".join(parts)
+
+
+def inject_controls(source: str, widget: str) -> str:
+    if CONTROL_ANCHOR in source:
+        return source.replace(CONTROL_ANCHOR, widget, 1)
+    lower = source.lower()
+    if "</body>" in lower:
+        index = lower.rindex("</body>")
+        return source[:index] + widget + source[index:]
+    return source + widget
 
 
 def deep_merge(base: dict, override: dict) -> dict:
@@ -142,56 +183,64 @@ def create_app(cfg: dict) -> Flask:
             resp.headers["Referrer-Policy"] = "no-referrer"
         return resp
 
+    def back_to_level(code: str) -> Response:
+        total = book.total_levels()
+        own = store.progress(cleared_levels())["step"]
+        if own < 1 or own > total:
+            return redirect("/", code=303)
+        return redirect(f"/copyspace/step{own}.html?bx={code}", code=303)
+
     @app.get("/")
     def index():
-        return send_from_directory(ROOT, "index.html")
-
-    @app.get("/hash/<path:name>")
-    def hash_file(name: str):
-        return send_from_directory(ROOT / "hash", name)
+        player_id()
+        progress = store.progress(cleared_levels())
+        if progress["total_levels"] == 0:
+            return Response("还没有配置关卡。", mimetype="text/plain")
+        if progress["finished"]:
+            return Response("全部关卡已通过。", mimetype="text/plain")
+        return redirect(f"/copyspace/step{progress['step']}.html")
 
     @app.get("/copyspace/<path:name>")
     def copyspace_file(name: str):
-        return send_from_directory(levels_dir, name)
-
-    @app.get("/api/progress")
-    def api_progress():
+        match = re.fullmatch(r"step([1-9]\d*)\.html", name)
+        if not match:
+            return send_from_directory(levels_dir, name)
+        level = int(match.group(1))
         player_id()
-        return jsonify(store.progress(cleared_levels()))
+        progress = store.progress(cleared_levels())
+        if not admin_authed() and level > progress["step"]:
+            return redirect("/")
+        page = levels_dir / name
+        if not page.is_file():
+            return Response("这一层还没有页面。", status=404, mimetype="text/plain")
+        source = page.read_text(encoding="utf-8", errors="replace")
+        widget = controls_html(level, request.args.get("bx"))
+        return Response(inject_controls(source, widget), mimetype="text/html")
 
     @app.post("/api/answer")
     def api_answer():
         pid = player_id()
         allowed, retry = limiter.check(pid)
         if not allowed:
-            return jsonify({
-                "ok": False,
-                "error": "rate_limited",
-                "message": f"猜得太快了，请 {max(1, round(retry))} 秒后再试。",
-            }), 429
-
-        payload = request.get_json(silent=True)
-        if not isinstance(payload, dict):
-            payload = request.form
+            return back_to_level("slow")
         try:
-            step = int(payload.get("step"))
+            step = int(request.form.get("step", ""))
         except (TypeError, ValueError):
-            return jsonify({"ok": False, "error": "bad_step", "message": "缺少关卡编号。"}), 400
+            return redirect("/", code=303)
 
-        password = str(payload.get("password", "")).strip()
+        password = str(request.form.get("password", "")).strip()
         if not password:
-            return jsonify({"ok": False, "error": "empty", "message": "请输入密码。"}), 400
+            return back_to_level("empty")
         if len(password) > max_guess_length:
-            return jsonify({
-                "ok": False,
-                "error": "too_long",
-                "message": f"最长 {max_guess_length} 个字符。",
-            }), 400
+            return back_to_level("toolong")
 
         result = store.submit(step, password, cleared_levels(), pid)
         if result.get("correct"):
             session["cleared"] = result["cleared"]
-        return jsonify(result)
+            return redirect("/", code=303)
+        if result.get("error") in ("finished", "no_levels", "wrong_step"):
+            return redirect("/", code=303)
+        return back_to_level("wrong")
 
     return app
 
@@ -232,10 +281,10 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="bx-game 极简密码迷宫")
     parser.add_argument(
         "command", nargs="?", default="run",
-        choices=["run", "status", "reset", "goto", "set-answer", "log", "hash",
+        choices=["run", "status", "reset", "goto", "set-answer", "log",
                  "admin-password"],
     )
-    parser.add_argument("args", nargs="*", help="goto <关卡> / set-answer <关卡> <答案> / log [条数] / hash <文本> / admin-password [密码]")
+    parser.add_argument("args", nargs="*", help="goto <关卡> / set-answer <关卡> <答案> / log [条数] / admin-password [密码]")
     parser.add_argument("--config", type=Path, default=None)
     parser.add_argument("--host", default=None)
     parser.add_argument("--port", type=int, default=None)
@@ -249,11 +298,6 @@ def main() -> None:
         return
     if args.command == "log":
         print_log(cfg, int(args.args[0]) if args.args else 30)
-        return
-    if args.command == "hash":
-        if not args.args:
-            raise SystemExit("用法: python app.py hash <文本>")
-        print(hashlib.sha256(args.args[0].encode("utf-8")).hexdigest())
         return
     if args.command == "admin-password":
         auth = AdminAuth(cfg)

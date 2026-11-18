@@ -3,24 +3,8 @@
 <head>
 <meta charset="utf-8">
 <title>Step 2</title>
-<script src="../hash/hashp.js"></script>
-<style>html { visibility: hidden; }</style>
-<script src="guard.js"></script>
 </head>
 <body>
-<script>CopyspaceGuard.enter(2);</script>
-<h2>请输入第 2 层密码：</h2>
-<input type="password" id="pwd">
-<button onclick="next()">进入下一步</button>
-<p id="msg"></p>
-
-<script>
-async function next() {
-  const pwd = document.getElementById("pwd").value;
-  await CopyspaceGuard.submit(2, pwd);
-}
-</script>
-
 <h3>把单词 maze 的每个字母都往后挪一位（a→b，y→z，z→a）</h3>
 <p>结果还是四个小写字母。</p>
 </body>

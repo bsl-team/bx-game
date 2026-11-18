@@ -3,24 +3,8 @@
 <head>
 <meta charset="utf-8">
 <title>Step 3</title>
-<script src="../hash/hashp.js"></script>
-<style>html { visibility: hidden; }</style>
-<script src="guard.js"></script>
 </head>
 <body>
-<script>CopyspaceGuard.enter(3);</script>
-<h2>请输入第 3 层密码：</h2>
-<input type="password" id="pwd">
-<button onclick="next()">进入下一步</button>
-<p id="msg"></p>
-
-<script>
-async function next() {
-  const pwd = document.getElementById("pwd").value;
-  await CopyspaceGuard.submit(3, pwd);
-}
-</script>
-
 <h3>字符串 bx 的 SHA-256 十六进制摘要的前 8 位（小写）</h3>
 <p>八位十六进制字符，0-9 和 a-f。</p>
 </body>

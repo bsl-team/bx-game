@@ -3,24 +3,8 @@
 <head>
 <meta charset="utf-8">
 <title>Step 4</title>
-<script src="../hash/hashp.js"></script>
-<style>html { visibility: hidden; }</style>
-<script src="guard.js"></script>
 </head>
 <body>
-<script>CopyspaceGuard.enter(4);</script>
-<h2>请输入第 4 层密码：</h2>
-<input type="password" id="pwd">
-<button onclick="next()">进入下一步</button>
-<p id="msg"></p>
-
-<script>
-async function next() {
-  const pwd = document.getElementById("pwd").value;
-  await CopyspaceGuard.submit(4, pwd);
-}
-</script>
-
 <h3>本关的关卡序号用英文怎么说？（全小写单词）</h3>
 <p>看一看你现在在第几层。</p>
 </body>

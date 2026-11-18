@@ -3,24 +3,8 @@
 <head>
 <meta charset="utf-8">
 <title>Step 5</title>
-<script src="../hash/hashp.js"></script>
-<style>html { visibility: hidden; }</style>
-<script src="guard.js"></script>
 </head>
 <body>
-<script>CopyspaceGuard.enter(5);</script>
-<h2>请输入第 5 层密码：</h2>
-<input type="password" id="pwd">
-<button onclick="next()">进入下一步</button>
-<p id="msg"></p>
-
-<script>
-async function next() {
-  const pwd = document.getElementById("pwd").value;
-  await CopyspaceGuard.submit(5, pwd);
-}
-</script>
-
 <h3>219845122340 + 114514 等于多少？</h3>
 <p>最后一层，做一次加法。</p>
 </body>

@@ -3,24 +3,8 @@
 <head>
 <meta charset="utf-8">
 <title>Step 1</title>
-<script src="../hash/hashp.js"></script>
-<style>html { visibility: hidden; }</style>
-<script src="guard.js"></script>
 </head>
 <body>
-<script>CopyspaceGuard.enter(1);</script>
-<h2>请输入第 1 层密码：</h2>
-<input type="password" id="pwd">
-<button onclick="next()">进入下一步</button>
-<p id="msg"></p>
-
-<script>
-async function next() {
-  const pwd = document.getElementById("pwd").value;
-  await CopyspaceGuard.submit(1, pwd);
-}
-</script>
-
 <h3>计算算式结果：114514×1919810</h3>
 <p>把两个数乘起来，得到的那串数字就是密码。</p>
 </body>

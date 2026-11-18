@@ -1,41 +1,38 @@
 # bx-game
 
-一个和 [maze.001365.xyz](https://maze.001365.xyz) 一模一样的极简密码迷宫：公开站点纯 HTML、没有样式；另有一个独立的管理后台 `/admin`，密码登录，用表单改答案、生成关卡页。
+一个没有主页的密码迷宫。访问 `/` 会自动跳到玩家自己的当前关卡；每一关完全是站长自己写的 HTML，服务端只在页面里插入一个密码框和「上一关 / 下一关」两个普通按钮。答案在服务端，管理后台在 `/admin`。
 
 ## 玩法
 
-1. 首页 `index.html` 只有一个快捷跳转：
+1. 打开 `/` → 302 跳到自己的当前关卡 `/copyspace/stepN.html`；全部通关后 `/` 显示「全部关卡已通过。」。
+2. 关卡页就是 `copyspace/stepN.html` 里的完整 HTML，随便写题面、样式、图片。服务端会在 `</body>` 前插入：
 
-   ```text
-   Hello world!
-   这里是密码迷宫
-   [快捷跳转        ] [完成]
-   密码迷宫:114514
-   第二层:1919810
-   最后一层:1145141919810
+   ```html
+   <form class="bx-controls" method="post" action="/api/answer">
+     <input type="hidden" name="step" value="N">
+     <input type="password" name="password" placeholder="密码" required>
+     <button type="button" onclick="...">上一关</button>
+     <button type="submit">下一关</button>
+   </form>
    ```
 
-   输入列表里的入口码，`hashStrong`（明文 SHA-256）命中后跳到对应页面。
-
-2. 每一层是独立的 `/copyspace/stepN.html`。页面默认隐藏，`CopyspaceGuard.enter(N)` 向 `/api/progress` 确认进度后才显示；没解锁的层会被弹回你自己的当前层。
-3. 所有玩家共享一轮：任何人猜对当前层，全网就开到下一层；玩家各自按 Cookie 从第 1 层逐层追上来。
-4. 答案只在服务端 `data/answers.json`，页面里没有答案；入口码（114514 / 1919810 / 1145141919810）和关卡答案无关。
-5. 猜错不扣次数，但按 Cookie 限流（默认每分钟 30 次、两次间隔 150ms）。
-
-> `CopyspaceGuard` 的隐藏只是前端软门禁：`/copyspace/stepN.html` 的源码谁都能直接抓，这是参考站同款的模型。别把答案写进页面。
+   - **下一关**：提交密码。答对自动跳到下一关；答错回到本关，控件上方显示「密码不对。」。
+   - **上一关**：回到上一关页面；第 1 关时按钮禁用。
+   - 想指定控件位置，就在页面里写 `<!--bx-controls-->`；不写就插到 `</body>` 前。控件没有自带样式，可以用 `.bx-controls` 自己写 CSS。
+3. 所有玩家共享一轮：任何人答对当前关卡，全网就开到下一关；玩家按 Cookie 从第 1 关逐层追上来。
+4. 未解锁的关卡 URL 会被服务端弹回你的当前关卡；管理登录状态下可以预览任意关卡。
+5. 猜错不扣次数，但按 Cookie 限流（默认每分钟 30 次、两次间隔 150ms）。答案只在 `data/answers.json`，页面里没有。
 
 ## 文件结构
 
 ```
-index.html              首页：hashStrong 快捷跳转
-hash/hashp.js           hashStrong = SHA-256 十六进制
-copyspace/stepN.html    第 N 层页面，服务端原样输出
-copyspace/guard.js      CopyspaceGuard：藏页面、查进度、提交答案
+copyspace/stepN.html    第 N 层页面：站长自己的完整 HTML，服务端注入控件
+copyspace/其他文件       图片、CSS 等原样返回
 data/answers.json       关卡 -> 答案（明文，仅服务端读；首次启动自动生成）
 data/state.json         全网进度、计数、最近猜测（自动维护）
-data/admin.json         管理密码的 PBKDF2 哈希（首次设置密码后生成）
+data/admin.json         管理密码的 PBKDF2 哈希（设置密码后生成）
 data/secret.key         Cookie 签名密钥（自动生成）
-app.py                  路由、API、命令行
+app.py                  路由、控件注入、命令行
 admin.py                管理后台：登录、改答案、生成关卡页
 templates/admin.html    管理后台的唯一页面
 game.py                 答案本、进度、限流
@@ -47,14 +44,39 @@ wsgi.py                 生产入口
 ```bash
 pip install -r requirements.txt
 python app.py admin-password   # 第一次：设置管理密码（按提示输两次）
-python app.py                  # http://127.0.0.1:5000/
+python app.py                  # 打开 http://127.0.0.1:5000/ 会自动进入第 1 关
 ```
 
 管理后台：<http://127.0.0.1:5000/admin>（公开页面里没有入口链接）。
 
+## 关卡页怎么写
+
+最小示例：
+
+```html
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>第 1 关</title>
+</head>
+<body>
+<h3>这里写题面</h3>
+<p>这里写提示。</p>
+<!-- 可选：写了就把密码框和按钮插在这里；不写就插到 </body> 前 -->
+<!--bx-controls-->
+</body>
+</html>
+```
+
+- 页面里不需要任何脚本，也不用自己写密码框；服务端每次请求时注入。
+- 控件的 HTML 类名是 `bx-controls`，错误提示是里面的 `<p>`，可以按需加样式。
+- `copyspace/` 下的非 `stepN.html` 文件（图片、CSS、JS）会原样返回，路径照常引用。
+- 答案不能含空格，最长 64 字符。
+
 ## 管理界面 /admin
 
-第一次使用先设置管理密码，二选一：
+第一次使用先设置管理密码：
 
 ```bash
 python app.py admin-password              # 推荐：交互输入两次，不进 shell 历史
@@ -65,7 +87,7 @@ python app.py admin-password 你的密码      # 一步到位，密码至少 8 �
 
 - 看全网当前关卡、总关卡、总猜测、最近 1 小时猜测、记录中的玩家数。
 - **改每一关的答案**：表格里直接改、点保存，这一关立刻重新开放。
-- **新增 / 更新关卡**：填关卡号、答案、页面标题和题面 HTML，勾选「生成关卡页」，后台会写出一个和示例一样的 `copyspace/stepN.html`（自带 `CopyspaceGuard.enter/submit` 和隐藏样式），不用手动碰代码。
+- **新增 / 更新关卡**：填关卡号、答案、页面标题和题面 HTML，勾选「生成关卡页」，后台会写出完整的 `copyspace/stepN.html`。密码框和「上一关 / 下一关」由服务器自动插入，不用写；想指定位置就在题面里写 `<!--bx-controls-->`。
   - 已存在的页面默认不覆盖；要重写就勾「覆盖已有页面」。
   - 只改答案、保留手写页面时，用关卡表格里的「保存」，不要勾生成页面。
 - 一键把全网切到任意关卡；重置全网进度（回到第 1 关，计数清零，答案保留）。
@@ -78,8 +100,8 @@ python app.py admin-password 你的密码      # 一步到位，密码至少 8 �
 - 登录态是签名 Cookie + 空闲超时（默认 30 分钟）；所有修改表单都带 CSRF token，只接受 POST。
 - 登录按 IP 限流（默认 5 分钟 10 次）；改密码会递增凭据版本，旧会话立刻失效。
 - `/admin` 带 `noindex`、`X-Frame-Options: DENY`、`no-store`，公开页面不提供入口。
+- 管理登录状态下可以预览未解锁关卡；普通玩家访问未来关卡会被弹回自己的当前关。
 - 管理密码可以用命令行随时重设，服务器不用重启，旧登录会自动失效。
-- 首页的快捷跳转码仍然写在 `index.html` 里；要增加入口码，用 `python app.py hash 新入口码` 算出 SHA-256 再加一个 `if`。
 
 ## 命令行（备用）
 
@@ -89,7 +111,6 @@ python app.py log [条数]            # 最近的猜测记录（时间、关卡�
 python app.py reset                 # 回到第 1 关，计数清零，答案保留
 python app.py goto 3                # 把全网进度拨回第 3 关（第 3 关及以后标记未通过）
 python app.py set-answer 3 3ff1726c # 改/加第 3 关的答案
-python app.py hash 我的入口码       # 算 hashStrong，改首页快捷跳转时用
 python app.py admin-password        # 重设管理密码
 python app.py run --host 0.0.0.0 --port 8080 --debug
 ```
@@ -104,51 +125,14 @@ python app.py run --host 0.0.0.0 --port 8080 --debug
 }
 ```
 
-键就是关卡号，从 1 开始，答案不能含空格，最长 64 字符（`security.max_guess_length`）。
-
-### 关卡页的最小骨架
-
-后台生成的页面就是这个结构；手写时 `guard.js`、`#pwd`、`#msg` 三个约定不能省：
-
-```html
-<!doctype html>
-<html>
-<head>
-<meta charset="utf-8">
-<title>Step 6</title>
-<script src="../hash/hashp.js"></script>
-<style>html { visibility: hidden; }</style>
-<script src="guard.js"></script>
-</head>
-<body>
-<script>CopyspaceGuard.enter(6);</script>
-<h2>请输入第 6 层密码：</h2>
-<input type="password" id="pwd">
-<button onclick="next()">进入下一步</button>
-<p id="msg"></p>
-
-<script>
-async function next() {
-  const pwd = document.getElementById("pwd").value;
-  await CopyspaceGuard.submit(6, pwd);
-}
-</script>
-
-<h3>这里写你的题面</h3>
-</body>
-</html>
-```
-
 ## 接口
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
-| GET | `/` | 首页快捷跳转 |
-| GET | `/hash/hashp.js` | hashStrong |
-| GET | `/copyspace/stepN.html` | 原样返回关卡页 |
-| GET | `/copyspace/guard.js` | CopyspaceGuard |
-| GET | `/api/progress` | 自己的当前层、全网进度、总猜测数 |
-| POST | `/api/answer` | `{ "step": N, "password": "..." }`，对了返回 `next` 或 `finished` |
+| GET | `/` | 302 到玩家自己的当前关卡；通关后显示完成提示 |
+| GET | `/copyspace/stepN.html` | 返回关卡页，并注入密码框 + 上一关 / 下一关 |
+| GET | `/copyspace/其他文件` | 原样返回图片、CSS 等 |
+| POST | `/api/answer` | 表单提交 `step` + `password`，成功跳下一关，失败回本关 |
 | GET/POST | `/admin/...` | 管理后台页面与表单（密码保护） |
 
 ## 配置
@@ -202,4 +186,4 @@ location / {
 - `data/` 必须持久化：`answers.json` 是答案，`state.json` 是全网进度，`admin.json` 是管理密码哈希，`secret.key` 是 Cookie 密钥。删 `state.json` 等于重开第一轮；删 `secret.key` 等于所有玩家进度作废；删 `admin.json` 等于要重新设置管理密码。
 - 上 HTTPS 后把 `security.session_secure` 设为 `true`。
 - Nginx 后面 `remote_addr` 都是 `127.0.0.1`，玩家限流和管理登录限流都会退化成全局限流；要按真实 IP 做就得配 `ProxyFix` 或把限流值当全局预算来调。
-- 旧版（聊天界面 + 旧 `/admin` 面板 + `/step/N` 路径）已经全部删掉；旧格式的 `data/state.json` 首次启动会自动改名成 `state.json.old`，从第 1 关重新开始。旧格式的 `data/admin.json` 会被忽略，用 `python app.py admin-password` 重新设置即可。
+- 旧版（首页快捷跳转 + `hash/` + `guard.js` + `/api/progress`）已经全部删掉；旧格式的 `data/state.json` 首次启动会自动改名成 `state.json.old`，从第 1 关重新开始。旧格式的 `data/admin.json` 会被忽略，用 `python app.py admin-password` 重新设置即可。
