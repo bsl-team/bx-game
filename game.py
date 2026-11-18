@@ -292,11 +292,13 @@ class GameState:
 class RateLimiter:
     """按玩家 Cookie 限流；单进程内存实现，所以只能跑一个 worker。"""
 
-    def __init__(self, cfg: dict):
+    def __init__(self, cfg: dict, limit: int | None = None, window: float | None = None,
+                 min_interval_ms: int | None = None):
         sec = cfg["security"]
-        self.window = 60.0
-        self.limit = max(1, int(sec.get("guess_rate_limit_per_minute", 30)))
-        self.min_interval = max(0.0, int(sec.get("guess_min_interval_ms", 0)) / 1000.0)
+        self.window = float(window if window is not None else 60.0)
+        self.limit = max(1, int(limit if limit is not None else sec.get("guess_rate_limit_per_minute", 30)))
+        interval = min_interval_ms if min_interval_ms is not None else sec.get("guess_min_interval_ms", 0)
+        self.min_interval = max(0.0, int(interval) / 1000.0)
         self.hits: dict[str, list[float]] = {}
         self.lock = threading.Lock()
 

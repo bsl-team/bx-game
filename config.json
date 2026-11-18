@@ -18,5 +18,13 @@
     "state_file": "data/state.json",
     "copyspace_dir": "copyspace",
     "log_size": 200
+  },
+  "admin": {
+    "credentials_file": "data/admin.json",
+    "session_max_age_seconds": 1800,
+    "hash_iterations": 200000,
+    "min_password_length": 8,
+    "login_rate_limit_per_5min": 10,
+    "login_min_interval_ms": 800
   }
 }

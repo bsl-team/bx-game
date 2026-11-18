@@ -1,11 +1,13 @@
-"""bx-game：和参考站一样没有管理界面的极简密码迷宫。
+"""bx-game：纯 HTML 密码迷宫 + 独立管理后台。
 
 首页 index.html 用 hashStrong 做快捷跳转；copyspace/stepN.html 是每一层（站长自己写），
 copyspace/guard.js 负责藏页面和校验进度，答案只在服务端的 data/answers.json 里。
+管理页面在 /admin，密码登录，前端页面不受影响。
 """
 from __future__ import annotations
 
 import argparse
+import getpass
 import hashlib
 import json
 import secrets as pysecrets
@@ -14,6 +16,7 @@ from pathlib import Path
 
 from flask import Flask, Response, jsonify, request, send_from_directory, session
 
+from admin import AdminAuth, bp as admin_bp
 from game import ROOT, AnswerBook, GameState, RateLimiter
 
 DEFAULTS = {
@@ -34,6 +37,14 @@ DEFAULTS = {
         "state_file": "data/state.json",
         "copyspace_dir": "copyspace",
         "log_size": 200,
+    },
+    "admin": {
+        "credentials_file": "data/admin.json",
+        "session_max_age_seconds": 1800,
+        "hash_iterations": 200000,
+        "min_password_length": 8,
+        "login_rate_limit_per_5min": 10,
+        "login_min_interval_ms": 800,
     },
 }
 
@@ -97,6 +108,15 @@ def create_app(cfg: dict) -> Flask:
     app.extensions["bx_store"] = store
     app.extensions["bx_book"] = book
     app.extensions["bx_limiter"] = limiter
+    admin_cfg = cfg["admin"]
+    app.extensions["bx_admin"] = AdminAuth(cfg)
+    app.extensions["bx_admin_limiter"] = RateLimiter(
+        cfg,
+        limit=int(admin_cfg.get("login_rate_limit_per_5min", 10)),
+        window=300.0,
+        min_interval_ms=int(admin_cfg.get("login_min_interval_ms", 800)),
+    )
+    app.register_blueprint(admin_bp)
 
     def player_id() -> str:
         pid = session.get("pid")
@@ -116,6 +136,10 @@ def create_app(cfg: dict) -> Flask:
     def headers(resp: Response):
         resp.headers["Cache-Control"] = "no-store"
         resp.headers["X-Content-Type-Options"] = "nosniff"
+        if request.path.startswith("/admin"):
+            resp.headers["X-Robots-Tag"] = "noindex, nofollow"
+            resp.headers["X-Frame-Options"] = "DENY"
+            resp.headers["Referrer-Policy"] = "no-referrer"
         return resp
 
     @app.get("/")
@@ -177,8 +201,11 @@ def print_status(cfg: dict) -> None:
     store = GameState(cfg, book)
     snap = store.snapshot()
     levels_dir = ROOT / str(cfg["game"].get("copyspace_dir", "copyspace"))
+    auth = AdminAuth(cfg)
     print(f"当前关卡: {snap['current_step']} / 共 {snap['total_levels']} 关")
     print(f"全网总猜测: {snap['total_guesses']}")
+    print("管理密码: " + ("已设置（/admin）" if auth.configured
+                        else "未设置（运行 python app.py admin-password）"))
     for row in snap["levels"]:
         page = "有" if (levels_dir / f"step{row['level']}.html").is_file() else "缺"
         print(f"{row['level']}  答案={row['answer']}  本关猜测={row['guesses']}  "
@@ -202,12 +229,13 @@ def print_log(cfg: dict, count: int = 30) -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="bx-game 极简密码迷宫（无管理界面）")
+    parser = argparse.ArgumentParser(description="bx-game 极简密码迷宫")
     parser.add_argument(
         "command", nargs="?", default="run",
-        choices=["run", "status", "reset", "goto", "set-answer", "log", "hash"],
+        choices=["run", "status", "reset", "goto", "set-answer", "log", "hash",
+                 "admin-password"],
     )
-    parser.add_argument("args", nargs="*", help="goto <关卡> / set-answer <关卡> <答案> / log [条数] / hash <文本>")
+    parser.add_argument("args", nargs="*", help="goto <关卡> / set-answer <关卡> <答案> / log [条数] / hash <文本> / admin-password [密码]")
     parser.add_argument("--config", type=Path, default=None)
     parser.add_argument("--host", default=None)
     parser.add_argument("--port", type=int, default=None)
@@ -226,6 +254,20 @@ def main() -> None:
         if not args.args:
             raise SystemExit("用法: python app.py hash <文本>")
         print(hashlib.sha256(args.args[0].encode("utf-8")).hexdigest())
+        return
+    if args.command == "admin-password":
+        auth = AdminAuth(cfg)
+        password = args.args[0] if args.args else ""
+        if not password:
+            password = getpass.getpass("新管理密码: ")
+            confirm = getpass.getpass("再输一次: ")
+            if password != confirm:
+                raise SystemExit("两次输入不一致。")
+        try:
+            auth.set_password(password)
+        except ValueError as exc:
+            raise SystemExit(str(exc))
+        print(f"管理密码已保存到 {auth.path}。打开 /admin 登录。")
         return
     if args.command == "reset":
         book = AnswerBook(cfg)
@@ -264,7 +306,10 @@ def main() -> None:
     total = app.extensions["bx_book"].total_levels()
     current = app.extensions["bx_store"].snapshot()["current_step"]
     print(f"bx-game → http://{host}:{port}/  第 {current} 关 / 共 {total} 关")
-    print("没有管理界面：改 data/answers.json、copyspace/stepN.html，或用 python app.py status")
+    if app.extensions["bx_admin"].configured:
+        print("管理界面 /admin（密码登录）")
+    else:
+        print("管理界面 /admin：还没有设置密码，运行 python app.py admin-password")
     app.run(host=host, port=port, debug=debug, threaded=True)
 
 

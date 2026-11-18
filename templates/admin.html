@@ -1,0 +1,223 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<title>bx-game 管理</title>
+<style>
+:root { color-scheme: light dark; --bg:#fff; --fg:#1f2328; --muted:#6e7781; --line:#d8dee4; --card:#f6f8fa; --accent:#0969da; --accent-fg:#fff; --ok:#1a7f37; --ok-bg:#dafbe1; --err:#cf222e; --err-bg:#ffebe9; }
+@media (prefers-color-scheme: dark) { :root { --bg:#0d1117; --fg:#e6edf3; --muted:#8b949e; --line:#30363d; --card:#161b22; --accent:#2f81f7; --ok:#3fb950; --ok-bg:#12261b; --err:#f85149; --err-bg:#2d1214; } }
+* { box-sizing: border-box; }
+body { margin:0; background:var(--bg); color:var(--fg); font:14px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",sans-serif; }
+main { max-width:1100px; margin:0 auto; padding:24px 16px 64px; }
+.top { display:flex; justify-content:space-between; align-items:flex-start; gap:16px; flex-wrap:wrap; margin-bottom:16px; }
+h1 { font-size:22px; margin:0 0 4px; }
+h2 { font-size:16px; margin:0 0 8px; }
+p { margin:6px 0; }
+.muted { color:var(--muted); }
+code, pre { font-family:ui-monospace,SFMono-Regular,Consolas,monospace; }
+pre { background:var(--card); border:1px solid var(--line); border-radius:6px; padding:10px 12px; overflow-x:auto; }
+.card { border:1px solid var(--line); border-radius:8px; padding:16px; margin:14px 0; }
+.stats { display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); gap:10px; margin:14px 0; }
+.stats div { border:1px solid var(--line); border-radius:8px; padding:10px 12px; }
+.stats span { display:block; color:var(--muted); font-size:12px; }
+.stats strong { font-size:18px; }
+.table-wrap { overflow-x:auto; }
+table { width:100%; border-collapse:collapse; }
+th, td { text-align:left; padding:7px 8px; border-bottom:1px solid var(--line); vertical-align:middle; }
+th { font-size:12px; color:var(--muted); font-weight:600; white-space:nowrap; }
+.answer { width:170px; }
+input, textarea { background:var(--bg); color:var(--fg); border:1px solid var(--line); border-radius:6px; padding:6px 8px; font:inherit; }
+textarea { width:100%; resize:vertical; }
+input:focus, textarea:focus { outline:2px solid var(--accent); outline-offset:-1px; }
+.num { width:72px; }
+.btn { display:inline-block; background:var(--bg); color:var(--fg); border:1px solid var(--line); border-radius:6px; padding:6px 12px; font:inherit; text-decoration:none; cursor:pointer; }
+.btn:hover { border-color:var(--accent); }
+.btn.primary { background:var(--accent); border-color:var(--accent); color:var(--accent-fg); }
+.btn.danger { color:var(--err); }
+.btn.small { padding:4px 10px; font-size:13px; }
+.inline { display:inline-flex; align-items:center; gap:6px; margin:0; }
+.row { display:flex; gap:16px; flex-wrap:wrap; align-items:center; }
+.form-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:12px; align-items:end; }
+.form-grid label { display:flex; flex-direction:column; gap:4px; font-size:13px; }
+.form-grid .wide { grid-column:1/-1; }
+.form-grid label.check { flex-direction:row; align-items:center; gap:6px; }
+.form-grid label.check input { width:auto; }
+.flash { border-radius:6px; padding:8px 12px; margin:10px 0; }
+.flash.ok { background:var(--ok-bg); color:var(--ok); }
+.flash.error { background:var(--err-bg); color:var(--err); }
+.actions { display:flex; gap:8px; align-items:center; }
+.guess { max-width:260px; overflow-wrap:anywhere; }
+footer { margin-top:18px; font-size:12px; }
+@media (max-width:600px) { .answer { width:120px; } main { padding:16px 10px 48px; } }
+</style>
+</head>
+<body>
+<main>
+  <header class="top">
+    <div>
+      <h1>bx-game 管理</h1>
+      <p class="muted">公开站点保持纯 HTML；这里只改服务器上的答案和关卡页。</p>
+    </div>
+    <div class="actions">
+      <a class="btn" href="/" target="_blank">打开站点</a>
+      {% if authed %}
+      <form method="post" action="{{ url_for('admin.logout') }}" class="inline">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <button class="btn" type="submit">退出</button>
+      </form>
+      {% endif %}
+    </div>
+  </header>
+
+  {% for category, message in get_flashed_messages(with_categories=true) %}
+  <p class="flash {{ category }}">{{ message }}</p>
+  {% endfor %}
+
+  {% if not configured %}
+  <section class="card">
+    <h2>先设置管理密码</h2>
+    <p>在服务器项目目录运行下面这条命令，按提示输入两次密码：</p>
+    <pre>python app.py admin-password</pre>
+    <p class="muted">也可以一步到位：<code>python app.py admin-password 你的密码</code>（至少 {{ min_password_length }} 位）。设置完刷新本页。</p>
+  </section>
+  {% elif not authed %}
+  <section class="card">
+    <h2>登录</h2>
+    <form method="post" action="{{ url_for('admin.login') }}" class="row">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <input type="password" name="password" placeholder="管理密码" autocomplete="current-password" autofocus required>
+      <button class="btn primary" type="submit">登录</button>
+    </form>
+  </section>
+  {% else %}
+
+  <section class="stats">
+    <div><span>全网当前关卡</span><strong>第 {{ data.current_step }} 关</strong></div>
+    <div><span>总关卡</span><strong>{{ data.total_levels }}</strong></div>
+    <div><span>总猜测</span><strong>{{ data.total_guesses }}</strong></div>
+    <div><span>最近 1 小时</span><strong>{{ data.guesses_last_hour }}</strong></div>
+    <div><span>记录中的玩家</span><strong>{{ data.distinct_players }}</strong></div>
+  </section>
+
+  <section class="card">
+    <h2>快速操作</h2>
+    <div class="row">
+      <form method="post" action="{{ url_for('admin.goto') }}" class="inline">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <label>把全网切到第 <input type="number" name="level" min="1" max="999" value="{{ data.current_step }}" class="num" required> 关</label>
+        <button class="btn" type="submit">切换</button>
+      </form>
+      <form method="post" action="{{ url_for('admin.reset') }}" class="inline" data-confirm="确定重置？所有玩家回到第 1 关，计数清零（答案保留）。">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <button class="btn danger" type="submit">重置全网进度</button>
+      </form>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>关卡</h2>
+    <p class="muted">改答案会立刻让这一关重新开放。页面文件在 <code>copyspace/stepN.html</code>。</p>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr><th>#</th><th>答案</th><th>状态</th><th>本关猜测</th><th>页面</th><th>操作</th></tr>
+        </thead>
+        <tbody>
+          {% for row in data.levels %}
+          <tr>
+            <td>{{ row.level }}</td>
+            <td>
+              <form method="post" action="{{ url_for('admin.answer') }}" class="inline">
+                <input type="hidden" name="csrf" value="{{ csrf }}">
+                <input type="hidden" name="level" value="{{ row.level }}">
+                <input name="answer" value="{{ row.answer or '' }}" class="answer" required>
+                <button class="btn small" type="submit">保存</button>
+              </form>
+            </td>
+            <td>{{ '已通过' if row.solved else '未通过' }}</td>
+            <td>{{ row.guesses }}</td>
+            <td>{% if row.page_exists %}<a href="{{ row.page_url }}" target="_blank">打开</a>{% else %}<span class="muted">缺</span>{% endif %}</td>
+            <td>
+              <form method="post" action="{{ url_for('admin.goto') }}" class="inline">
+                <input type="hidden" name="csrf" value="{{ csrf }}">
+                <input type="hidden" name="level" value="{{ row.level }}">
+                <button class="btn small" type="submit">设为当前</button>
+              </form>
+            </td>
+          </tr>
+          {% else %}
+          <tr><td colspan="6" class="muted">还没有关卡，用下面的表单加第一关。</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>新增 / 更新关卡</h2>
+    <p class="muted">填答案和题面、勾选生成页面，就会写出一个和示例一样的 <code>copyspace/stepN.html</code>。已存在的页面默认不覆盖。</p>
+    <form method="post" action="{{ url_for('admin.level') }}" class="form-grid">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <label>关卡号 <input type="number" name="level" min="1" max="999" value="{{ next_level }}" required></label>
+      <label>答案 <input name="answer" placeholder="不能有空格" required></label>
+      <label>页面标题 <input name="title" value="Step {{ next_level }}"></label>
+      <label class="wide">题面（HTML，直接写 h3 / p 等）<textarea name="body" rows="7"><h3>这里写题面</h3>
+<p>这里写提示。</p></textarea></label>
+      <label class="check"><input type="checkbox" name="make_page" value="1" checked> 生成 / 更新关卡页</label>
+      <label class="check"><input type="checkbox" name="overwrite" value="1"> 覆盖已有页面</label>
+      <div class="wide"><button class="btn primary" type="submit">保存关卡</button></div>
+    </form>
+  </section>
+
+  <section class="card">
+    <h2>最近猜测</h2>
+    {% if recent %}
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>时间</th><th>关卡</th><th>玩家</th><th>输入</th><th>结果</th></tr></thead>
+        <tbody>
+          {% for entry in recent %}
+          <tr>
+            <td class="muted">{{ entry.at }}</td>
+            <td>{{ entry.level }}</td>
+            <td><code>{{ (entry.pid or '')[:8] }}</code></td>
+            <td class="guess">{{ (entry.guess or '')[:60] }}</td>
+            <td>{{ '对' if entry.correct else '错' }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <p class="muted">还没有猜测记录。</p>
+    {% endif %}
+  </section>
+
+  <section class="card">
+    <h2>管理密码</h2>
+    <form method="post" action="{{ url_for('admin.password') }}" class="form-grid">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <label>当前密码 <input type="password" name="current" autocomplete="current-password" required></label>
+      <label>新密码 <input type="password" name="new" minlength="{{ min_password_length }}" autocomplete="new-password" required></label>
+      <label>再输一次 <input type="password" name="confirm" minlength="{{ min_password_length }}" autocomplete="new-password" required></label>
+      <div class="wide"><button class="btn" type="submit">修改密码</button></div>
+    </form>
+    <p class="muted">密码至少 {{ min_password_length }} 位。修改后所有管理登录都会失效。凭据保存在 <code>data/admin.json</code>。</p>
+  </section>
+
+  <footer class="muted">
+    答案文件：<code>{{ data.answers_file }}</code> · 状态文件：<code>{{ data.state_file }}</code> · 猜测原文保存在 state.json 里。
+  </footer>
+  {% endif %}
+</main>
+<script>
+document.querySelectorAll("form[data-confirm]").forEach(function (form) {
+  form.addEventListener("submit", function (event) {
+    if (!confirm(form.getAttribute("data-confirm"))) { event.preventDefault(); }
+  });
+});
+</script>
+</body>
+</html>
