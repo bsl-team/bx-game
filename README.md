@@ -1,6 +1,6 @@
 # bx-game
 
-一个没有主页的密码迷宫。访问 `/` 会自动跳到玩家自己的当前关卡；每一关完全是站长自己写的 HTML，服务端只在页面里插入一个密码框和「上一关 / 下一关」两个普通按钮。答案在服务端，管理后台在 `/admin`。
+一个没有主页的密码迷宫。访问 `/` 会自动跳到玩家自己的当前关卡；每一关完全是站长自己写的 HTML，服务端只在页面里插入一个密码框和「上一关 / 下一关」两个普通按钮。答案在服务端，后台在 `/super_admin`。
 
 ## 玩法
 
@@ -33,8 +33,10 @@ data/state.json         全网进度、计数、最近猜测（自动维护）
 data/admin.json         管理密码的 PBKDF2 哈希（设置密码后生成）
 data/secret.key         Cookie 签名密钥（自动生成）
 app.py                  路由、控件注入、命令行
-admin.py                管理后台：登录、改答案、生成关卡页
-templates/admin.html    管理后台的唯一页面
+admin.py                super_admin 后台：登录、改答案、生成/编辑关卡页
+templates/super_admin_base.html   后台公共框架和样式
+templates/super_admin.html        后台首页（登录、统计、关卡表格）
+templates/super_admin_edit.html   整页源码编辑器
 game.py                 答案本、进度、限流
 wsgi.py                 生产入口
 ```
@@ -47,7 +49,7 @@ python app.py admin-password   # 第一次：设置管理密码（按提示输�
 python app.py                  # 打开 http://127.0.0.1:5000/ 会自动进入第 1 关
 ```
 
-管理后台：<http://127.0.0.1:5000/admin>（公开页面里没有入口链接）。
+后台：<http://127.0.0.1:5000/super_admin>（公开页面里没有入口链接）。
 
 ## 关卡页怎么写
 
@@ -74,7 +76,7 @@ python app.py                  # 打开 http://127.0.0.1:5000/ 会自动进入�
 - `copyspace/` 下的非 `stepN.html` 文件（图片、CSS、JS）会原样返回，路径照常引用。
 - 答案不能含空格，最长 64 字符。
 
-## 管理界面 /admin
+## super_admin 后台
 
 第一次使用先设置管理密码：
 
@@ -87,9 +89,14 @@ python app.py admin-password 你的密码      # 一步到位，密码至少 8 �
 
 - 看全网当前关卡、总关卡、总猜测、最近 1 小时猜测、记录中的玩家数。
 - **改每一关的答案**：表格里直接改、点保存，这一关立刻重新开放。
+- **编辑整页源码**：关卡表格每行有「编辑源码」，打开 `copyspace/stepN.html` 的完整源码编辑器：
+  - CodeMirror 5：HTML/CSS/JS 语法高亮、行号、括号匹配/自动补全、代码折叠、搜索（Ctrl+F）、注释切换（Ctrl+/）、全屏、Ctrl+S 保存。
+  - 保存后原样写回文件，服务器注入的密码框和「上一关 / 下一关」不受影响。
+  - 编辑器从 jsdelivr 加载 CodeMirror；加载失败时自动回退到普通 textarea，照样能保存。
 - **新增 / 更新关卡**：填关卡号、答案、页面标题和题面 HTML，勾选「生成关卡页」，后台会写出完整的 `copyspace/stepN.html`。密码框和「上一关 / 下一关」由服务器自动插入，不用写；想指定位置就在题面里写 `<!--bx-controls-->`。
   - 已存在的页面默认不覆盖；要重写就勾「覆盖已有页面」。
   - 只改答案、保留手写页面时，用关卡表格里的「保存」，不要勾生成页面。
+  - 想改整页 HTML/CSS/JS 时，用「编辑源码」。
 - 一键把全网切到任意关卡；重置全网进度（回到第 1 关，计数清零，答案保留）。
 - 看最近 30 条猜测：时间、关卡、玩家短 id、提交原文、对错。
 - 修改管理密码（需要当前密码）；修改后所有管理登录立即失效。
@@ -99,7 +106,7 @@ python app.py admin-password 你的密码      # 一步到位，密码至少 8 �
 - 密码用 PBKDF2-SHA256 加盐存 `data/admin.json`（POSIX 下 chmod 600），不保存明文。
 - 登录态是签名 Cookie + 空闲超时（默认 30 分钟）；所有修改表单都带 CSRF token，只接受 POST。
 - 登录按 IP 限流（默认 5 分钟 10 次）；改密码会递增凭据版本，旧会话立刻失效。
-- `/admin` 带 `noindex`、`X-Frame-Options: DENY`、`no-store`，公开页面不提供入口。
+- `/super_admin` 带 `noindex`、`X-Frame-Options: DENY`、`no-store`，公开页面不提供入口。
 - 管理登录状态下可以预览未解锁关卡；普通玩家访问未来关卡会被弹回自己的当前关。
 - 管理密码可以用命令行随时重设，服务器不用重启，旧登录会自动失效。
 
@@ -133,7 +140,7 @@ python app.py run --host 0.0.0.0 --port 8080 --debug
 | GET | `/copyspace/stepN.html` | 返回关卡页，并注入密码框 + 上一关 / 下一关 |
 | GET | `/copyspace/其他文件` | 原样返回图片、CSS 等 |
 | POST | `/api/answer` | 表单提交 `step` + `password`，成功跳下一关，失败回本关 |
-| GET/POST | `/admin/...` | 管理后台页面与表单（密码保护） |
+| GET/POST | `/super_admin/...` | super_admin 后台页面与表单（密码保护） |
 
 ## 配置
 
@@ -186,4 +193,4 @@ location / {
 - `data/` 必须持久化：`answers.json` 是答案，`state.json` 是全网进度，`admin.json` 是管理密码哈希，`secret.key` 是 Cookie 密钥。删 `state.json` 等于重开第一轮；删 `secret.key` 等于所有玩家进度作废；删 `admin.json` 等于要重新设置管理密码。
 - 上 HTTPS 后把 `security.session_secure` 设为 `true`。
 - Nginx 后面 `remote_addr` 都是 `127.0.0.1`，玩家限流和管理登录限流都会退化成全局限流；要按真实 IP 做就得配 `ProxyFix` 或把限流值当全局预算来调。
-- 旧版（首页快捷跳转 + `hash/` + `guard.js` + `/api/progress`）已经全部删掉；旧格式的 `data/state.json` 首次启动会自动改名成 `state.json.old`，从第 1 关重新开始。旧格式的 `data/admin.json` 会被忽略，用 `python app.py admin-password` 重新设置即可。
+- 旧版（首页快捷跳转 + `hash/` + `guard.js` + `/api/progress`）已经全部删掉；后台地址从 `/admin` 改为 `/super_admin`，旧地址不再提供。旧格式的 `data/state.json` 首次启动会自动改名成 `state.json.old`，从第 1 关重新开始。旧格式的 `data/admin.json` 会被忽略，用 `python app.py admin-password` 重新设置即可。

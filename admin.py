@@ -1,6 +1,6 @@
-"""管理后台：密码登录、改答案、生成关卡页、切关/重置、查看猜测记录。
+"""super_admin 后台：密码登录、改答案、生成/编辑关卡页、切关/重置、查看猜测记录。
 
-公开站点保持纯 HTML；这里只挂 /admin 下的表单页。
+公开站点保持纯 HTML；这里只挂 /super_admin 下的表单页。
 """
 from __future__ import annotations
 
@@ -21,7 +21,7 @@ from flask import (Blueprint, current_app, flash, redirect, render_template,
 
 from game import ROOT, now_iso
 
-bp = Blueprint("admin", __name__, url_prefix="/admin")
+bp = Blueprint("super_admin", __name__, url_prefix="/super_admin")
 
 STEP_TEMPLATE = """<!doctype html>
 <html>
@@ -162,7 +162,7 @@ def require_csrf(view):
     def wrapper(*args, **kwargs):
         if not csrf_ok():
             flash("页面已过期，请重试。", "error")
-            return redirect(url_for("admin.panel"))
+            return redirect(url_for("super_admin.panel"))
         return view(*args, **kwargs)
 
     return wrapper
@@ -173,7 +173,7 @@ def require_login(view):
     def wrapper(*args, **kwargs):
         if not authed():
             flash("请先登录。", "error")
-            return redirect(url_for("admin.panel"))
+            return redirect(url_for("super_admin.panel"))
         return view(*args, **kwargs)
 
     return wrapper
@@ -199,6 +199,15 @@ def write_level_page(level: int, title: str, body: str) -> Path:
     tmp.write_text(source, encoding="utf-8")
     os.replace(tmp, path)
     return path
+
+
+def default_page_source(level: int) -> str:
+    return (
+        "<!doctype html>\n<html>\n<head>\n<meta charset=\"utf-8\">\n"
+        f"<title>Step {level}</title>\n</head>\n<body>\n"
+        "<h3>这里写题面</h3>\n<p>这里写提示。</p>\n"
+        "<!--bx-controls-->\n</body>\n</html>\n"
+    )
 
 
 def _parse_level(raw) -> int:
@@ -241,7 +250,7 @@ def panel():
         data["answers_file"] = str(_ext("bx_book").path)
         recent = list(reversed(log[-30:]))
     return render_template(
-        "admin.html",
+        "super_admin.html",
         authed=logged_in,
         configured=auth.configured,
         csrf=csrf_token(),
@@ -260,19 +269,19 @@ def login():
     allowed, retry = limiter.check(f"login:{request.remote_addr}")
     if not allowed:
         flash(f"尝试太频繁，请 {max(1, round(retry))} 秒后再试。", "error")
-        return redirect(url_for("admin.panel"))
+        return redirect(url_for("super_admin.panel"))
     if not auth.configured:
         flash("还没有设置管理密码，请先在服务器上运行 python app.py admin-password", "error")
-        return redirect(url_for("admin.panel"))
+        return redirect(url_for("super_admin.panel"))
     if not auth.verify(request.form.get("password", "")):
         flash("管理密码不正确。", "error")
-        return redirect(url_for("admin.panel"))
+        return redirect(url_for("super_admin.panel"))
     session["admin"] = True
     session["admin_gen"] = auth.generation
     session["admin_at"] = time.time()
     session["csrf"] = secrets.token_urlsafe(24)
     flash("登录成功。", "ok")
-    return redirect(url_for("admin.panel"))
+    return redirect(url_for("super_admin.panel"))
 
 
 @bp.post("/logout")
@@ -282,7 +291,7 @@ def logout():
         session.pop(key, None)
     session["csrf"] = secrets.token_urlsafe(24)
     flash("已退出。", "ok")
-    return redirect(url_for("admin.panel"))
+    return redirect(url_for("super_admin.panel"))
 
 
 @bp.post("/answer")
@@ -295,10 +304,10 @@ def answer():
         _ext("bx_store").reset_solved(level)
     except (TypeError, ValueError) as exc:
         flash(f"保存失败：{exc}", "error")
-        return redirect(url_for("admin.panel"))
+        return redirect(url_for("super_admin.panel"))
     message = f"第 {level} 关答案已保存（{len(password)} 个字符），这一关重新开放。"
     flash(message + _level_exists_warning(level), "error" if not level_page(level).is_file() else "ok")
-    return redirect(url_for("admin.panel"))
+    return redirect(url_for("super_admin.panel"))
 
 
 @bp.post("/level")
@@ -310,7 +319,7 @@ def level():
         level = _parse_level(form.get("level"))
     except (TypeError, ValueError) as exc:
         flash(f"保存失败：{exc}", "error")
-        return redirect(url_for("admin.panel"))
+        return redirect(url_for("super_admin.panel"))
 
     if form.get("answer"):
         try:
@@ -318,26 +327,87 @@ def level():
             _ext("bx_store").reset_solved(level)
         except (TypeError, ValueError) as exc:
             flash(f"答案保存失败：{exc}", "error")
-            return redirect(url_for("admin.panel"))
+            return redirect(url_for("super_admin.panel"))
     elif form.get("make_page") != "1":
         flash("答案不能为空。", "error")
-        return redirect(url_for("admin.panel"))
+        return redirect(url_for("super_admin.panel"))
 
     if form.get("make_page") == "1":
         existing = level_page(level).exists()
         if existing and form.get("overwrite") != "1":
             flash("页面已存在，这次没有覆盖，只保存了答案。要重写页面请勾选「覆盖」。", "error")
-            return redirect(url_for("admin.panel"))
+            return redirect(url_for("super_admin.panel"))
         try:
             write_level_page(level, form.get("title", ""), form.get("body", ""))
         except OSError as exc:
             flash(f"页面写入失败：{exc}", "error")
-            return redirect(url_for("admin.panel"))
+            return redirect(url_for("super_admin.panel"))
         flash(f"第 {level} 关已保存，页面 copyspace/step{level}.html 已生成。", "ok")
     else:
         flash(f"第 {level} 关答案已保存。" + _level_exists_warning(level),
               "ok" if level_page(level).is_file() else "error")
-    return redirect(url_for("admin.panel"))
+    return redirect(url_for("super_admin.panel"))
+
+
+@bp.get("/edit/<int:level>")
+def edit_page(level: int):
+    if not authed():
+        flash("请先登录。", "error")
+        return redirect(url_for("super_admin.panel"))
+    try:
+        level = _parse_level(level)
+    except ValueError as exc:
+        flash(str(exc), "error")
+        return redirect(url_for("super_admin.panel"))
+    page = level_page(level)
+    if page.is_file():
+        source = page.read_text(encoding="utf-8", errors="replace")
+        page_exists = True
+    else:
+        source = default_page_source(level)
+        page_exists = False
+    return render_template(
+        "super_admin_edit.html",
+        authed=True,
+        configured=True,
+        csrf=csrf_token(),
+        level=level,
+        source=source,
+        page_exists=page_exists,
+        page_url=f"/copyspace/step{level}.html",
+        answer=_ext("bx_book").answer_for(level),
+    )
+
+
+@bp.post("/page")
+@require_csrf
+@require_login
+def save_page():
+    try:
+        level = _parse_level(request.form.get("level"))
+    except (TypeError, ValueError) as exc:
+        flash(f"保存失败：{exc}", "error")
+        return redirect(url_for("super_admin.panel"))
+    source = request.form.get("source", "")
+    if not source.strip():
+        flash("源码不能为空。", "error")
+        return redirect(url_for("super_admin.edit_page", level=level))
+    if len(source) > 1_000_000:
+        flash("源码太长（上限 1 MB）。", "error")
+        return redirect(url_for("super_admin.edit_page", level=level))
+    path = level_page(level)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(".html.tmp")
+        tmp.write_text(source, encoding="utf-8")
+        os.replace(tmp, path)
+    except OSError as exc:
+        flash(f"写入失败：{exc}", "error")
+        return redirect(url_for("super_admin.edit_page", level=level))
+    flash(f"第 {level} 关源码已保存（{len(source)} 字符）。", "ok")
+    if request.form.get("then") == "open":
+        return redirect(f"/copyspace/step{level}.html")
+    return redirect(url_for("super_admin.edit_page", level=level))
 
 
 @bp.post("/goto")
@@ -348,14 +418,14 @@ def goto():
         level = _parse_level(request.form.get("level"))
     except (TypeError, ValueError) as exc:
         flash(f"切换失败：{exc}", "error")
-        return redirect(url_for("admin.panel"))
+        return redirect(url_for("super_admin.panel"))
     _ext("bx_store").goto(level)
     total = _ext("bx_book").total_levels()
     if level > total:
         flash(f"全网当前关卡已切到第 {level} 关，但这一关还没有答案，玩家会卡住。", "error")
     else:
         flash(f"全网当前关卡已切到第 {level} 关。", "ok")
-    return redirect(url_for("admin.panel"))
+    return redirect(url_for("super_admin.panel"))
 
 
 @bp.post("/reset")
@@ -364,7 +434,7 @@ def goto():
 def reset():
     _ext("bx_store").reset()
     flash("已重置：回到第 1 关，计数清零，答案保留。", "ok")
-    return redirect(url_for("admin.panel"))
+    return redirect(url_for("super_admin.panel"))
 
 
 @bp.post("/password")
@@ -374,17 +444,17 @@ def password():
     auth: AdminAuth = _ext("bx_admin")
     if not auth.verify(request.form.get("current", "")):
         flash("当前密码不正确。", "error")
-        return redirect(url_for("admin.panel"))
+        return redirect(url_for("super_admin.panel"))
     if request.form.get("new", "") != request.form.get("confirm", ""):
         flash("两次输入的新密码不一致。", "error")
-        return redirect(url_for("admin.panel"))
+        return redirect(url_for("super_admin.panel"))
     try:
         auth.set_password(request.form.get("new", ""))
     except ValueError as exc:
         flash(f"修改失败：{exc}", "error")
-        return redirect(url_for("admin.panel"))
+        return redirect(url_for("super_admin.panel"))
     for key in ("admin", "admin_gen", "admin_at"):
         session.pop(key, None)
     session["csrf"] = secrets.token_urlsafe(24)
     flash("管理密码已修改，请重新登录。", "ok")
-    return redirect(url_for("admin.panel"))
+    return redirect(url_for("super_admin.panel"))

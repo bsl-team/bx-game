@@ -2,7 +2,7 @@
 
 访问 / 会直接跳到玩家自己的当前关卡；关卡页完全是站长自己的 HTML，
 服务端只往页面里插一个密码框和「上一关 / 下一关」两个按钮。
-答案只在服务端的 data/answers.json 里，管理页面在 /admin。
+答案只在服务端的 data/answers.json 里，管理页面在 /super_admin。
 """
 from __future__ import annotations
 
@@ -177,7 +177,7 @@ def create_app(cfg: dict) -> Flask:
     def headers(resp: Response):
         resp.headers["Cache-Control"] = "no-store"
         resp.headers["X-Content-Type-Options"] = "nosniff"
-        if request.path.startswith("/admin"):
+        if request.path.startswith("/super_admin"):
             resp.headers["X-Robots-Tag"] = "noindex, nofollow"
             resp.headers["X-Frame-Options"] = "DENY"
             resp.headers["Referrer-Policy"] = "no-referrer"
@@ -253,7 +253,7 @@ def print_status(cfg: dict) -> None:
     auth = AdminAuth(cfg)
     print(f"当前关卡: {snap['current_step']} / 共 {snap['total_levels']} 关")
     print(f"全网总猜测: {snap['total_guesses']}")
-    print("管理密码: " + ("已设置（/admin）" if auth.configured
+    print("管理密码: " + ("已设置（/super_admin）" if auth.configured
                         else "未设置（运行 python app.py admin-password）"))
     for row in snap["levels"]:
         page = "有" if (levels_dir / f"step{row['level']}.html").is_file() else "缺"
@@ -311,7 +311,7 @@ def main() -> None:
             auth.set_password(password)
         except ValueError as exc:
             raise SystemExit(str(exc))
-        print(f"管理密码已保存到 {auth.path}。打开 /admin 登录。")
+        print(f"管理密码已保存到 {auth.path}。打开 /super_admin 登录。")
         return
     if args.command == "reset":
         book = AnswerBook(cfg)
@@ -351,9 +351,9 @@ def main() -> None:
     current = app.extensions["bx_store"].snapshot()["current_step"]
     print(f"bx-game → http://{host}:{port}/  第 {current} 关 / 共 {total} 关")
     if app.extensions["bx_admin"].configured:
-        print("管理界面 /admin（密码登录）")
+        print("管理界面 /super_admin（密码登录）")
     else:
-        print("管理界面 /admin：还没有设置密码，运行 python app.py admin-password")
+        print("管理界面 /super_admin：还没有设置密码，运行 python app.py admin-password")
     app.run(host=host, port=port, debug=debug, threaded=True)
 
 
