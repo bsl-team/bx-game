@@ -1,0 +1,25 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>第 4 层 · bx-game</title>
+<script src="/guard.js"></script>
+<style>html { visibility: hidden; }</style>
+</head>
+<body>
+<script>MazeGuard.enter(4);</script>
+<h2>请输入第 4 层密码：</h2>
+<input type="password" id="pwd" autocomplete="off">
+<button onclick="nextPwd()">进入下一步</button>
+<p id="msg"></p>
+<script>
+async function nextPwd() {
+  await MazeGuard.submit(4, document.getElementById("pwd").value);
+}
+</script>
+
+<h3>本关的关卡序号用英文怎么说？（全小写单词）</h3>
+<p>看一看你现在在第几层。</p>
+</body>
+</html>

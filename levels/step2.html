@@ -1,0 +1,25 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>第 2 层 · bx-game</title>
+<script src="/guard.js"></script>
+<style>html { visibility: hidden; }</style>
+</head>
+<body>
+<script>MazeGuard.enter(2);</script>
+<h2>请输入第 2 层密码：</h2>
+<input type="password" id="pwd" autocomplete="off">
+<button onclick="nextPwd()">进入下一步</button>
+<p id="msg"></p>
+<script>
+async function nextPwd() {
+  await MazeGuard.submit(2, document.getElementById("pwd").value);
+}
+</script>
+
+<h3>把单词 maze 的每个字母都往后挪一位（a→b，y→z，z→a）</h3>
+<p>结果还是四个小写字母。</p>
+</body>
+</html>

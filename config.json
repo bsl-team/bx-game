@@ -6,61 +6,17 @@
   },
   "security": {
     "secret_key_file": "data/secret.key",
-    "session_cookie_name": "bxgame",
+    "session_cookie_name": "bxmaze",
     "session_max_age_seconds": 2592000,
-    "session_httponly": true,
-    "session_samesite": "Lax",
     "session_secure": false,
-    "hash_algorithm": "pbkdf2_sha256",
-    "hash_iterations": 120000,
     "guess_rate_limit_per_minute": 30,
     "guess_min_interval_ms": 150,
     "max_guess_length": 64
   },
-  "password": {
-    "charset": "lower",
-    "charsets": {
-      "digits": "0123456789",
-      "lower": "abcdefghijklmnopqrstuvwxyz",
-      "upper": "ABCDEFGHIJKLMNOPQRSTUVWXYZ",
-      "hex": "0123456789abcdef",
-      "alnum_lower": "abcdefghijklmnopqrstuvwxyz0123456789",
-      "alnum": "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
-    },
-    "level1_length": 4,
-    "length_step": 1,
-    "length_max": 8,
-    "avoid_repeats": true
-  },
-  "rounds": {
-    "mode": "puzzle",
-    "max_levels": 0,
-    "auto_advance": true,
-    "auto_redirect": true,
+  "game": {
+    "answers_file": "data/answers.json",
     "state_file": "data/state.json",
-    "questions_file": "data/questions.json"
-  },
-  "admin": {
-    "credentials_file": "data/admin.json",
-    "token_file": "data/admin_token.txt",
-    "session_max_age_seconds": 1800,
-    "hash_iterations": 200000,
-    "min_password_length": 8,
-    "login_rate_limit_per_5min": 10,
-    "login_min_interval_ms": 800,
-    "reveal_passwords": true,
-    "log_guess_text": true,
-    "guess_log_size": 500
-  },
-  "ui": {
-    "title": "猜密码",
-    "subtitle": "bx-game · 全网共猜一关",
-    "accent_color": "#10a37f",
-    "theme": "chatgpt",
-    "poll_interval_ms": 2500,
-    "show_charset_hint": false,
-    "show_hint": true,
-    "max_chat_messages": 60,
-    "footer_text": "服务端只保存密码哈希，前端只显示密码长度。"
+    "levels_dir": "levels",
+    "log_size": 200
   }
 }
