@@ -2,20 +2,22 @@
 <html>
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>第 2 层 · bx-game</title>
-<script src="/guard.js"></script>
+<title>Step 2</title>
+<script src="../hash/hashp.js"></script>
 <style>html { visibility: hidden; }</style>
+<script src="guard.js"></script>
 </head>
 <body>
-<script>MazeGuard.enter(2);</script>
+<script>CopyspaceGuard.enter(2);</script>
 <h2>请输入第 2 层密码：</h2>
-<input type="password" id="pwd" autocomplete="off">
-<button onclick="nextPwd()">进入下一步</button>
+<input type="password" id="pwd">
+<button onclick="next()">进入下一步</button>
 <p id="msg"></p>
+
 <script>
-async function nextPwd() {
-  await MazeGuard.submit(2, document.getElementById("pwd").value);
+async function next() {
+  const pwd = document.getElementById("pwd").value;
+  await CopyspaceGuard.submit(2, pwd);
 }
 </script>
 

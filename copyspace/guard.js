@@ -1,6 +1,15 @@
 (function () {
   "use strict";
 
+  for (var i = 2; i <= 32; i++) {
+    try { sessionStorage.removeItem("token_step" + i); } catch (err) {}
+  }
+  try { sessionStorage.removeItem("copyspace_progress_v2"); } catch (err) {}
+
+  function pageFor(step) {
+    return "/copyspace/step" + step + ".html";
+  }
+
   function revealPage() {
     document.documentElement.style.visibility = "visible";
   }
@@ -11,10 +20,10 @@
   }
 
   function goTo(path) {
-    if (typeof path === "string" && path.charAt(0) === "/") {
+    if (typeof path === "string" && path.indexOf("/copyspace/") === 0) {
       location.replace(path);
     } else {
-      location.replace("/");
+      location.replace(pageFor(1));
     }
   }
 
@@ -35,15 +44,17 @@
       });
       var data = await readJson(res);
       if (!res.ok) {
+        if (data.restart) { goTo(data.restart); return false; }
         revealPage();
         showError(data.message || "无法读取进度。");
         return false;
       }
       if (!Number.isInteger(data.step)) {
-        return goTo("/");
+        goTo(pageFor(1));
+        return false;
       }
       if (step > data.step) {
-        goTo("/step/" + data.step);
+        goTo(pageFor(data.step));
         return false;
       }
       revealPage();
@@ -57,7 +68,7 @@
 
   async function submit(step, password) {
     if (!password) {
-      showError("请输入密码。");
+      showError("请输入密码");
       return false;
     }
     try {
@@ -84,16 +95,16 @@
       }
       if (Number.isInteger(data.currentStep)) {
         showError(data.message || "你不在这一层。");
-        setTimeout(function () { goTo("/step/" + data.currentStep); }, 700);
+        setTimeout(function () { goTo(pageFor(data.currentStep)); }, 700);
         return false;
       }
       showError(data.message || "密码不对。");
       return false;
     } catch (err) {
-      showError("提交失败：" + err.message);
+      showError("连接服务器失败：" + err.message);
       return false;
     }
   }
 
-  window.MazeGuard = Object.freeze({ enter: enter, submit: submit });
+  window.CopyspaceGuard = Object.freeze({ enter: enter, submit: submit });
 })();
