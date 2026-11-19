@@ -1,0 +1,150 @@
+{% extends "super_admin_base.html" %}
+{% block title %}第 {{ level }} 关源码 · super_admin{% endblock %}
+{% block head %}
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/codemirror@5.65.16/lib/codemirror.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/codemirror@5.65.16/theme/dracula.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/codemirror@5.65.16/addon/fold/foldgutter.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/codemirror@5.65.16/addon/dialog/dialog.css">
+{% endblock %}
+{% block content %}
+<section class="card">
+  <div class="row between">
+    <div>
+      <h2>第 {{ level }} 关 · 编辑源码</h2>
+      <p class="muted">保存后原样写回 <code>copyspace/step{{ level }}.html</code>；密码框和「上一关 / 下一关」仍由服务器自动插入。</p>
+    </div>
+    <div class="actions">
+      <a class="btn" href="{{ url_for('super_admin.panel') }}">返回 super_admin</a>
+      <a class="btn" href="{{ page_url }}" target="_blank">打开页面</a>
+    </div>
+  </div>
+
+  {% if not page_exists %}<p class="flash error">这一关还没有页面，保存后会新建。</p>{% endif %}
+  {% if not answer %}<p class="flash error">这一关还没有答案，玩家会卡住；请在关卡表格里先设置答案。</p>{% endif %}
+
+  <form id="page-form" method="post" action="{{ url_for('super_admin.save_page') }}">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <input type="hidden" name="level" value="{{ level }}">
+    <div class="editor-wrap" id="editor-wrap">
+      <div class="editor-toolbar">
+        <button class="btn primary" type="submit" name="then" value="edit">保存源码</button>
+        <button class="btn" type="submit" name="then" value="open">保存并打开</button>
+        <button class="btn" type="button" id="toggle-full">全屏</button>
+        <span class="editor-meta" id="editor-meta">{{ source|length }} 字符</span>
+        <span class="muted">Ctrl+S 保存 · 源码会原样发给玩家</span>
+      </div>
+      <textarea name="source" id="source" class="source-fallback" spellcheck="false">{{ source }}</textarea>
+    </div>
+  </form>
+  <p class="muted">答案哈希：{% if answer_hash %}<code>{{ answer_hash[:16] }}…</code>{% else %}未设置{% endif %} · 页面：<code>copyspace/step{{ level }}.html</code></p>
+</section>
+
+<section class="card" id="background">
+  <div class="row between">
+    <div>
+      <h2>第 {{ level }} 关 · 页面背景</h2>
+      <p class="muted">主题和自定义 CSS 会注入到这一关的页面，包括你自己写的完整 HTML。留空主题则跟随默认（{{ default_theme }}）。</p>
+    </div>
+    <a class="btn" href="{{ url_for('super_admin.theme_panel') }}">编辑主题源码</a>
+  </div>
+  <form method="post" action="{{ url_for('super_admin.background') }}" class="form-grid">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <input type="hidden" name="level" value="{{ level }}">
+    <label>背景主题
+      <select name="theme">
+        <option value="">跟随默认（{{ default_theme }}）</option>
+        {% for name, meta in themes.items() %}
+        <option value="{{ name }}" {% if level_style.theme == name %}selected{% endif %}>{{ meta.label }} · {{ name }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label class="wide">本页自定义 CSS（追加在主题之后，可写背景、字体、颜色）
+      <textarea name="css" rows="9" spellcheck="false" placeholder="body { letter-spacing: .02em; }&#10;.bx-bg { filter: saturate(1.1); }">{{ level_style.css }}</textarea>
+    </label>
+    <div class="wide"><button class="btn primary" type="submit">保存背景</button></div>
+  </form>
+</section>
+{% endblock %}
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/codemirror@5.65.16/lib/codemirror.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/codemirror@5.65.16/mode/xml/xml.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/codemirror@5.65.16/mode/javascript/javascript.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/codemirror@5.65.16/mode/css/css.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/codemirror@5.65.16/mode/htmlmixed/htmlmixed.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/codemirror@5.65.16/addon/edit/closebrackets.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/codemirror@5.65.16/addon/edit/matchbrackets.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/codemirror@5.65.16/addon/selection/active-line.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/codemirror@5.65.16/addon/fold/foldcode.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/codemirror@5.65.16/addon/fold/foldgutter.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/codemirror@5.65.16/addon/fold/brace-fold.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/codemirror@5.65.16/addon/fold/xml-fold.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/codemirror@5.65.16/addon/search/searchcursor.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/codemirror@5.65.16/addon/search/search.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/codemirror@5.65.16/addon/dialog/dialog.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/codemirror@5.65.16/addon/comment/comment.js"></script>
+<script>
+(function () {
+  var textarea = document.getElementById("source");
+  var wrap = document.getElementById("editor-wrap");
+  var toggle = document.getElementById("toggle-full");
+  var meta = document.getElementById("editor-meta");
+  var form = document.getElementById("page-form");
+
+  function fallbackFullscreen() {
+    var full = wrap.classList.toggle("fullscreen");
+    toggle.textContent = full ? "退出全屏" : "全屏";
+  }
+
+  if (!window.CodeMirror) {
+    toggle.addEventListener("click", fallbackFullscreen);
+    return;
+  }
+
+  var editor = CodeMirror.fromTextArea(textarea, {
+    mode: "htmlmixed",
+    theme: "dracula",
+    lineNumbers: true,
+    lineWrapping: false,
+    indentUnit: 2,
+    tabSize: 2,
+    indentWithTabs: false,
+    autoCloseBrackets: true,
+    matchBrackets: true,
+    styleActiveLine: true,
+    foldGutter: true,
+    gutters: ["CodeMirror-linenumbers", "CodeMirror-foldgutter"],
+    extraKeys: {
+      "Ctrl-S": function () { form.requestSubmit(); },
+      "Cmd-S": function () { form.requestSubmit(); },
+      "Ctrl-/": "toggleComment",
+      "Tab": function (cm) { cm.replaceSelection("  ", "end"); }
+    }
+  });
+  editor.setSize(null, "65vh");
+  var saved = editor.getValue();
+
+  function refreshMeta() {
+    var value = editor.getValue();
+    meta.textContent = value.split("\n").length + " 行 · " + value.length + " 字符" +
+      (value !== saved ? " · 未保存" : "");
+  }
+  editor.on("change", refreshMeta);
+  refreshMeta();
+
+  form.addEventListener("submit", function () { textarea.value = editor.getValue(); });
+
+  toggle.addEventListener("click", function () {
+    var full = wrap.classList.toggle("fullscreen");
+    toggle.textContent = full ? "退出全屏" : "全屏";
+    editor.setSize(null, full ? "calc(100vh - 150px)" : "65vh");
+    editor.refresh();
+  });
+
+  document.addEventListener("keydown", function (event) {
+    if (event.key === "Escape" && wrap.classList.contains("fullscreen")) {
+      toggle.click();
+    }
+  });
+})();
+</script>
+{% endblock %}

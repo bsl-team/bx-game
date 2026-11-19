@@ -1,0 +1,156 @@
+{% extends "super_admin_base.html" %}
+{% block title %}主题与背景 · super_admin{% endblock %}
+{% block head %}
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/codemirror@5.65.16/lib/codemirror.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/codemirror@5.65.16/theme/dracula.css">
+{% endblock %}
+{% block content %}
+<section class="card">
+  <div class="row between">
+    <div>
+      <h2>主题与背景</h2>
+      <p class="muted">内置 12 种风格，源码就在这里改。主题通过 CSS 变量控制背景、文字、按钮和输入框；每关还能单独选主题、追加自定义 CSS。</p>
+    </div>
+    <a class="btn" href="{{ url_for('super_admin.panel') }}">返回关卡</a>
+  </div>
+  <p class="muted">常用变量：<code>--bx-bg</code>（背景）、<code>--bx-text</code>、<code>--bx-accent</code>、<code>--bx-field</code>、<code>--bx-border</code>、<code>--bx-font</code>。默认主题：<strong>{{ default_theme }}</strong>。</p>
+</section>
+
+<section class="card">
+  <h2>全部主题</h2>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>主题名</th><th>名称</th><th>来源</th><th>操作</th></tr></thead>
+      <tbody>
+        {% for name, meta in themes.items() %}
+        <tr>
+          <td><code>{{ name }}</code>{% if name == default_theme %} <span class="muted">· 默认</span>{% endif %}</td>
+          <td>{{ meta.label }}</td>
+          <td>{{ '内置' if meta.builtin else '自定义' }}</td>
+          <td><a href="{{ url_for('super_admin.theme_panel', edit=name) }}">编辑源码</a></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="card">
+  <h2>编辑主题：<code>{{ edit_name }}</code></h2>
+  <form id="theme-form" method="post" action="{{ url_for('super_admin.save_theme') }}">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <input type="hidden" name="name" value="{{ edit_name }}">
+    <div class="form-grid">
+      <label>显示名称 <input name="label" value="{{ edit_theme.label }}" maxlength="60"></label>
+      <label>新主题名（仅新建时用） <input name="new_name" placeholder="例如 my-theme" pattern="[a-z][a-z0-9_-]{0,31}"></label>
+      <label>操作
+        <select name="create">
+          <option value="0" selected>保存当前主题源码</option>
+          <option value="1">用新主题名新建一份</option>
+        </select>
+      </label>
+    </div>
+    <div class="editor-wrap" id="editor-wrap">
+      <div class="editor-toolbar">
+        <button class="btn primary" type="submit">保存源码</button>
+        <button class="btn" type="button" id="toggle-full">全屏</button>
+        <span class="editor-meta" id="editor-meta">{{ edit_theme.css|length }} 字符</span>
+        <span class="muted">Ctrl+S 保存</span>
+      </div>
+      <textarea name="css" id="theme-css" class="source-fallback" spellcheck="false">{{ edit_theme.css }}</textarea>
+    </div>
+  </form>
+  <div class="row" style="margin-top:10px">
+    <form method="post" action="{{ url_for('super_admin.set_default_theme') }}" class="inline">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <input type="hidden" name="name" value="{{ edit_name }}">
+      <button class="btn" type="submit">设为默认主题</button>
+    </form>
+    {% if themes[edit_name].builtin %}
+    <form method="post" action="{{ url_for('super_admin.reset_theme') }}" class="inline" data-confirm="用内置默认源码覆盖当前主题的修改？">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <input type="hidden" name="name" value="{{ edit_name }}">
+      <button class="btn" type="submit">恢复内置源码</button>
+    </form>
+    {% else %}
+    <form method="post" action="{{ url_for('super_admin.delete_theme') }}" class="inline" data-confirm="删除主题 {{ edit_name }}？使用它的关卡会回退到默认主题。">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <input type="hidden" name="name" value="{{ edit_name }}">
+      <button class="btn danger" type="submit">删除这个自定义主题</button>
+    </form>
+    {% endif %}
+  </div>
+  <p class="muted">新建主题：把<code>主题名</code>改成新名字（小写字母开头，可用 <code>-</code> / <code>_</code>），在「操作」里选「新建」，再点保存。</p>
+</section>
+
+<section class="card">
+  <h2>每关背景</h2>
+  <p class="muted">关卡单独的背景在「编辑源码 / 背景」页面设置。下面是当前配置：</p>
+  {% if page_styles %}
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>关卡</th><th>主题</th><th>自定义 CSS</th><th>操作</th></tr></thead>
+      <tbody>
+        {% for level, style in page_styles.items() %}
+        <tr>
+          <td>第 {{ level }} 关</td>
+          <td>{{ style.theme or '跟随默认' }}</td>
+          <td>{{ style.css|length }} 字符</td>
+          <td><a href="{{ url_for('super_admin.edit_page', level=level) }}#background">编辑</a></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="muted">还没有单独配置背景的关卡，全部使用默认主题 {{ default_theme }}。</p>
+  {% endif %}
+</section>
+{% endblock %}
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/codemirror@5.65.16/lib/codemirror.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/codemirror@5.65.16/mode/css/css.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/codemirror@5.65.16/addon/edit/closebrackets.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/codemirror@5.65.16/addon/edit/matchbrackets.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/codemirror@5.65.16/addon/selection/active-line.js"></script>
+<script>
+(function () {
+  var textarea = document.getElementById("theme-css");
+  var wrap = document.getElementById("editor-wrap");
+  var toggle = document.getElementById("toggle-full");
+  var meta = document.getElementById("editor-meta");
+  var form = document.getElementById("theme-form");
+  if (!window.CodeMirror) {
+    toggle.addEventListener("click", function () {
+      wrap.classList.toggle("fullscreen");
+    });
+    return;
+  }
+  var editor = CodeMirror.fromTextArea(textarea, {
+    mode: "css", theme: "dracula", lineNumbers: true, indentUnit: 2, tabSize: 2,
+    autoCloseBrackets: true, matchBrackets: true, styleActiveLine: true,
+    extraKeys: {
+      "Ctrl-S": function () { form.requestSubmit(); },
+      "Cmd-S": function () { form.requestSubmit(); },
+      "Tab": function (cm) { cm.replaceSelection("  ", "end"); }
+    }
+  });
+  editor.setSize(null, "60vh");
+  var saved = editor.getValue();
+  function refreshMeta() {
+    var value = editor.getValue();
+    meta.textContent = value.split("\n").length + " 行 · " + value.length + " 字符" +
+      (value !== saved ? " · 未保存" : "");
+  }
+  editor.on("change", refreshMeta);
+  refreshMeta();
+  form.addEventListener("submit", function () { textarea.value = editor.getValue(); });
+  toggle.addEventListener("click", function () {
+    var full = wrap.classList.toggle("fullscreen");
+    toggle.textContent = full ? "退出全屏" : "全屏";
+    editor.setSize(null, full ? "calc(100vh - 150px)" : "60vh");
+    editor.refresh();
+  });
+})();
+</script>
+{% endblock %}
