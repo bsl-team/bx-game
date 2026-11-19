@@ -329,6 +329,7 @@ def login():
                 time.sleep(delay)
         flash("管理密码不正确。", "error")
         return redirect(url_for("super_admin.panel"))
+    session.permanent = True
     session["admin"] = True
     session["admin_gen"] = auth.generation
     session["admin_at"] = time.time()

@@ -347,6 +347,7 @@ def create_app(cfg: dict) -> Flask:
         pid = session.get("pid")
         if not pid:
             pid = pysecrets.token_hex(8)
+            session.permanent = True
             session["pid"] = pid
         return pid
 
@@ -381,11 +382,6 @@ def create_app(cfg: dict) -> Flask:
         g.bx_gate_held = True
         return None
 
-    @app.before_request
-    def permanent_session():
-        if not session.permanent:
-            session.permanent = True
-
     @app.teardown_request
     def release_gate(_exc):
         if g.pop("bx_gate_held", False):
@@ -413,7 +409,6 @@ def create_app(cfg: dict) -> Flask:
 
     @app.get("/")
     def index():
-        player_id()
         progress = own_step()
         if progress["total_levels"] == 0:
             return Response("还没有配置关卡。", mimetype="text/plain")
@@ -426,7 +421,6 @@ def create_app(cfg: dict) -> Flask:
         blocked = gameplay_guard()
         if blocked is not None:
             return blocked
-        player_id()
         progress = own_step()
         total = progress["total_levels"]
         own = progress["step"]
@@ -507,6 +501,7 @@ def create_app(cfg: dict) -> Flask:
         if blocked is not None:
             return blocked
         pid = player_id()
+        session.permanent = True
         form, failure = read_answer_form()
         if failure is not None:
             return failure
