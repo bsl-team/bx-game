@@ -53,7 +53,7 @@ DEFAULT_SETTINGS = {
     "rate_limit_admin_count": 10,
     "rate_limit_admin_window": 300,
     "admin_login_delay_ms": 1000,
-    "gate_max_inflight": 48,
+    "gate_max_inflight": 16,
     "gate_max_waiters": 4096,
     "gate_wait_timeout_ms": 1500,
     "default_theme": "chatgpt",
