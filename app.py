@@ -13,6 +13,7 @@ import json
 import re
 import secrets as pysecrets
 import threading
+from collections import OrderedDict
 from datetime import timedelta
 from pathlib import Path
 from urllib.parse import parse_qs
@@ -217,7 +218,6 @@ class PageCache:
 
     def __init__(self, directory: Path, max_entries: int = 512,
                  max_bytes: int = 32 * 1024 * 1024, max_item_bytes: int = 512 * 1024):
-        from collections import OrderedDict
         self.directory = directory
         self.max_entries = max(1, int(max_entries))
         self.max_bytes = max(0, int(max_bytes))
@@ -257,6 +257,39 @@ class PageCache:
         return source
 
 
+class RenderCache:
+    """缓存最终渲染好的关卡 HTML（按内容哈希区分），热门关卡直接回字节。"""
+
+    def __init__(self, max_entries: int = 256, max_bytes: int = 16 * 1024 * 1024):
+        self.max_entries = max(1, int(max_entries))
+        self.max_bytes = max(0, int(max_bytes))
+        self.lock = threading.Lock()
+        self.entries: "OrderedDict[tuple, bytes]" = OrderedDict()
+        self.cached_bytes = 0
+
+    def get(self, key: tuple) -> bytes | None:
+        with self.lock:
+            value = self.entries.get(key)
+            if value is not None:
+                self.entries.move_to_end(key)
+            return value
+
+    def put(self, key: tuple, value: bytes) -> None:
+        if len(value) > self.max_bytes:
+            return
+        with self.lock:
+            old = self.entries.pop(key, None)
+            if old is not None:
+                self.cached_bytes -= len(old)
+            self.entries[key] = value
+            self.cached_bytes += len(value)
+            while self.entries and (
+                len(self.entries) > self.max_entries or self.cached_bytes > self.max_bytes
+            ):
+                _key, old_value = self.entries.popitem(last=False)
+                self.cached_bytes -= len(old_value)
+
+
 def create_app(cfg: dict) -> Flask:
     app = Flask(__name__)
     app.secret_key = load_secret_key(cfg)
@@ -268,6 +301,7 @@ def create_app(cfg: dict) -> Flask:
         SESSION_COOKIE_SAMESITE=str(sec["session_samesite"]),
         SESSION_COOKIE_SECURE=bool(sec["session_secure"]),
         PERMANENT_SESSION_LIFETIME=timedelta(seconds=int(sec["session_max_age_seconds"])),
+        SESSION_REFRESH_EACH_REQUEST=False,
         JSON_AS_ASCII=False,
         MAX_CONTENT_LENGTH=2_500_000,
         MAX_FORM_MEMORY_SIZE=2_000_000,
@@ -291,6 +325,7 @@ def create_app(cfg: dict) -> Flask:
     admin_limiter = IPRateLimiter()
     levels_dir = ROOT / str(game_cfg.get("copyspace_dir", "copyspace"))
     page_cache = PageCache(levels_dir, int(game_cfg.get("page_cache_size", 512)))
+    render_cache = RenderCache()
     answer_body_bytes = int(sec.get("answer_max_body_bytes", 1024))
 
     app.extensions["bx_cfg"] = cfg
@@ -408,11 +443,19 @@ def create_app(cfg: dict) -> Flask:
                             content_type="text/plain; charset=utf-8")
 
         level_style = pages.get(level)
+        custom_css = level_style.get("css", "")
         theme_name = level_style.get("theme") or str(settings.get("default_theme") or "chatgpt")
         _name, theme = themes.get(theme_name, str(settings.get("default_theme") or "chatgpt"))
-        html_out = inject_background(source, theme["css"], level_style.get("css", ""))
-        html_out = inject_controls(html_out, controls_html(level, request.args.get("bx")))
-        return Response(html_out, content_type="text/html; charset=utf-8")
+        error = request.args.get("bx")
+        key = (level, hash(source), hash(theme["css"]), hash(custom_css), error)
+        cached = render_cache.get(key)
+        if cached is not None:
+            return Response(cached, content_type="text/html; charset=utf-8")
+        html_out = inject_background(source, theme["css"], custom_css)
+        html_out = inject_controls(html_out, controls_html(level, error))
+        payload = html_out.encode("utf-8")
+        render_cache.put(key, payload)
+        return Response(payload, content_type="text/html; charset=utf-8")
 
     @app.get("/copyspace/<path:name>")
     def copyspace_file(name: str):

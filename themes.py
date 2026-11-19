@@ -354,13 +354,14 @@ class ThemeStore:
         return sorted(self.all())
 
     def get(self, name: str | None, default: str = "chatgpt") -> tuple[str, dict]:
-        themes = self.all()
-        if name and name in themes:
-            return name, themes[name]
-        if default in themes:
-            return default, themes[default]
-        first = next(iter(themes))
-        return first, themes[first]
+        with self.lock:
+            themes = self._refresh()
+            if name and name in themes:
+                return name, dict(themes[name])
+            if default in themes:
+                return default, dict(themes[default])
+            first = next(iter(themes))
+            return first, dict(themes[first])
 
     def save(self, name: str, label: str, css: str) -> None:
         name = str(name or "").strip()
