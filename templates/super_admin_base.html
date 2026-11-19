@@ -28,9 +28,9 @@ table { width:100%; border-collapse:collapse; }
 th, td { text-align:left; padding:7px 8px; border-bottom:1px solid var(--line); vertical-align:middle; }
 th { font-size:12px; color:var(--muted); font-weight:600; white-space:nowrap; }
 .answer { width:170px; }
-input, textarea { background:var(--bg); color:var(--fg); border:1px solid var(--line); border-radius:6px; padding:6px 8px; font:inherit; }
+input, textarea, select { background:var(--bg); color:var(--fg); border:1px solid var(--line); border-radius:6px; padding:6px 8px; font:inherit; }
 textarea { width:100%; resize:vertical; }
-input:focus, textarea:focus { outline:2px solid var(--accent); outline-offset:-1px; }
+input:focus, textarea:focus, select:focus { outline:2px solid var(--accent); outline-offset:-1px; }
 .num { width:72px; }
 .btn { display:inline-block; background:var(--bg); color:var(--fg); border:1px solid var(--line); border-radius:6px; padding:6px 12px; font:inherit; text-decoration:none; cursor:pointer; }
 .btn:hover { border-color:var(--accent); }
@@ -72,7 +72,9 @@ footer { margin-top:18px; font-size:12px; }
       <p class="muted">bx-game 管理后台 · 公开站点保持纯 HTML</p>
     </div>
     <div class="actions">
-      <a class="btn" href="/" target="_blank">打开站点</a>
+      {% if authed %}<a class="btn" href="{{ url_for('super_admin.panel') }}">关卡</a>{% endif %}
+      {% if authed %}<a class="btn" href="{{ url_for('super_admin.theme_panel') }}">主题与背景</a>{% endif %}
+      <a class="btn" href="/game/1" target="_blank">打开站点</a>
       {% if authed %}
       <form method="post" action="{{ url_for('super_admin.logout') }}" class="inline">
         <input type="hidden" name="csrf" value="{{ csrf }}">

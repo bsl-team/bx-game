@@ -36,7 +36,33 @@
       <textarea name="source" id="source" class="source-fallback" spellcheck="false">{{ source }}</textarea>
     </div>
   </form>
-  <p class="muted">答案：{% if answer %}<code>{{ answer }}</code>{% else %}未设置{% endif %} · 页面：<code>copyspace/step{{ level }}.html</code></p>
+  <p class="muted">答案哈希：{% if answer_hash %}<code>{{ answer_hash[:16] }}…</code>{% else %}未设置{% endif %} · 页面：<code>copyspace/step{{ level }}.html</code></p>
+</section>
+
+<section class="card" id="background">
+  <div class="row between">
+    <div>
+      <h2>第 {{ level }} 关 · 页面背景</h2>
+      <p class="muted">主题和自定义 CSS 会注入到这一关的页面，包括你自己写的完整 HTML。留空主题则跟随默认（{{ default_theme }}）。</p>
+    </div>
+    <a class="btn" href="{{ url_for('super_admin.theme_panel') }}">编辑主题源码</a>
+  </div>
+  <form method="post" action="{{ url_for('super_admin.background') }}" class="form-grid">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <input type="hidden" name="level" value="{{ level }}">
+    <label>背景主题
+      <select name="theme">
+        <option value="">跟随默认（{{ default_theme }}）</option>
+        {% for name, meta in themes.items() %}
+        <option value="{{ name }}" {% if level_style.theme == name %}selected{% endif %}>{{ meta.label }} · {{ name }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label class="wide">本页自定义 CSS（追加在主题之后，可写背景、字体、颜色）
+      <textarea name="css" rows="9" spellcheck="false" placeholder="body { letter-spacing: .02em; }&#10;.bx-bg { filter: saturate(1.1); }">{{ level_style.css }}</textarea>
+    </label>
+    <div class="wide"><button class="btn primary" type="submit">保存背景</button></div>
+  </form>
 </section>
 {% endblock %}
 {% block scripts %}

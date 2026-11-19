@@ -16,8 +16,13 @@
     <input type="password" name="password" placeholder="管理密码" autocomplete="current-password" autofocus required>
     <button class="btn primary" type="submit">登录</button>
   </form>
+  <p class="muted">密码错误会等待 1 秒；来自 127.0.0.1 的访问不限速。</p>
 </section>
 {% else %}
+
+{% for message in data.notice %}
+<p class="flash error">提示：{{ message }}</p>
+{% endfor %}
 
 <section class="stats">
   <div><span>全网当前关卡</span><strong>第 {{ data.current_step }} 关</strong></div>
@@ -25,6 +30,21 @@
   <div><span>总猜测</span><strong>{{ data.total_guesses }}</strong></div>
   <div><span>最近 1 小时</span><strong>{{ data.guesses_last_hour }}</strong></div>
   <div><span>记录中的玩家</span><strong>{{ data.distinct_players }}</strong></div>
+  <div><span>24 小时活跃 IP</span><strong>{{ data.ipstats.tracked_ips }}</strong></div>
+  <div><span>准入队列</span><strong>{{ data.gate.inflight }} / {{ data.gate.max_inflight }} · 排队 {{ data.gate.waiting }}</strong></div>
+</section>
+
+<section class="card">
+  <h2>限流与队列</h2>
+  <p class="muted">按 IP 计算，127.0.0.1 和 ::1 完全放行。排队顺序按该 IP 最近 24 小时的请求数，请求少的优先。</p>
+  <form method="post" action="{{ url_for('super_admin.save_settings') }}" class="form-grid">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <label>窗口（秒）<input type="number" name="rate_window" min="0.5" max="3600" step="0.5" value="{{ settings.rate_window }}" required></label>
+    <label>每 IP 最多请求数<input type="number" name="rate_count" min="1" max="100000" value="{{ settings.rate_count }}" required></label>
+    <label>同时处理上限<input type="number" name="gate_inflight" min="1" max="10000" value="{{ data.gate.max_inflight }}" required></label>
+    <label>排队最多等待（毫秒）<input type="number" name="gate_wait_ms" min="50" max="60000" value="{{ settings.gate_wait_ms }}" required></label>
+    <div class="wide"><button class="btn primary" type="submit">保存限流设置</button></div>
+  </form>
 </section>
 
 <section class="card">
@@ -39,35 +59,38 @@
       <input type="hidden" name="csrf" value="{{ csrf }}">
       <button class="btn danger" type="submit">重置全网进度</button>
     </form>
+    <a class="btn" href="{{ url_for('super_admin.theme_panel') }}">编辑主题 / 背景源码</a>
   </div>
 </section>
 
 <section class="card">
   <h2>关卡</h2>
-  <p class="muted">改答案会立刻让这一关重新开放。页面文件在 <code>copyspace/stepN.html</code>，点「编辑源码」可以改整页 HTML。</p>
+  <p class="muted">服务器只保存答案的 SHA-256。页面在 <code>copyspace/stepN.html</code>，玩家访问 <code>/game/N</code>；点「编辑源码 / 背景」改整页 HTML 和这一关的主题。</p>
   <div class="table-wrap">
     <table>
       <thead>
-        <tr><th>#</th><th>答案</th><th>状态</th><th>本关猜测</th><th>页面</th><th>操作</th></tr>
+        <tr><th>#</th><th>答案哈希</th><th>背景</th><th>状态</th><th>本关猜测</th><th>页面</th><th>操作</th></tr>
       </thead>
       <tbody>
         {% for row in data.levels %}
         <tr>
           <td>{{ row.level }}</td>
           <td>
-            <form method="post" action="{{ url_for('super_admin.answer') }}" class="inline">
+            <code title="{{ row.hash or '' }}">{{ (row.hash or '')[:10] }}{% if row.hash %}…{% endif %}</code>
+            <form method="post" action="{{ url_for('super_admin.answer') }}" class="inline" style="margin-top:6px">
               <input type="hidden" name="csrf" value="{{ csrf }}">
               <input type="hidden" name="level" value="{{ row.level }}">
-              <input name="answer" value="{{ row.answer or '' }}" class="answer" required>
+              <input name="answer" class="answer" placeholder="输入新答案" required>
               <button class="btn small" type="submit">保存</button>
             </form>
           </td>
+          <td>{{ row.theme_label }}</td>
           <td>{{ '已通过' if row.solved else '未通过' }}</td>
           <td>{{ row.guesses }}</td>
           <td>{% if row.page_exists %}<a href="{{ row.page_url }}" target="_blank">打开</a>{% else %}<span class="muted">缺</span>{% endif %}</td>
           <td>
             <div class="actions">
-              <a href="{{ url_for('super_admin.edit_page', level=row.level) }}">编辑源码</a>
+              <a href="{{ url_for('super_admin.edit_page', level=row.level) }}">编辑源码 / 背景</a>
               <form method="post" action="{{ url_for('super_admin.goto') }}" class="inline">
                 <input type="hidden" name="csrf" value="{{ csrf }}">
                 <input type="hidden" name="level" value="{{ row.level }}">
@@ -77,16 +100,17 @@
           </td>
         </tr>
         {% else %}
-        <tr><td colspan="6" class="muted">还没有关卡，用下面的表单加第一关。</td></tr>
+        <tr><td colspan="7" class="muted">还没有关卡，用下面的表单加第一关。</td></tr>
         {% endfor %}
       </tbody>
     </table>
   </div>
+  <p class="muted">新增关卡时填明文答案，服务器会自动转成 SHA-256；也可以直接粘贴 <code>sha256:&lt;64 位十六进制&gt;</code>。</p>
 </section>
 
 <section class="card">
   <h2>新增 / 更新关卡</h2>
-  <p class="muted">填答案和题面、勾选生成页面，就会写出一个完整的 <code>copyspace/stepN.html</code>。密码框和「上一关 / 下一关」由服务器自动插入，不用自己写；想改整页源码，用关卡表里的「编辑源码」。</p>
+  <p class="muted">填答案和题面、勾选生成页面，就会写出一个完整的 <code>copyspace/stepN.html</code>。密码框和「上一关 / 下一关」由服务器自动插入，不用自己写；背景主题会一并注入。</p>
   <form method="post" action="{{ url_for('super_admin.level') }}" class="form-grid">
     <input type="hidden" name="csrf" value="{{ csrf }}">
     <label>关卡号 <input type="number" name="level" min="1" max="999" value="{{ next_level }}" required></label>
@@ -105,14 +129,14 @@
   {% if recent %}
   <div class="table-wrap">
     <table>
-      <thead><tr><th>时间</th><th>关卡</th><th>玩家</th><th>输入</th><th>结果</th></tr></thead>
+      <thead><tr><th>时间</th><th>关卡</th><th>玩家</th><th>提交的哈希</th><th>结果</th></tr></thead>
       <tbody>
         {% for entry in recent %}
         <tr>
           <td class="muted">{{ entry.at }}</td>
           <td>{{ entry.level }}</td>
           <td><code>{{ (entry.pid or '')[:8] }}</code></td>
-          <td class="guess">{{ (entry.guess or '')[:60] }}</td>
+          <td class="guess"><code>{{ (entry.hash or '')[:20] }}…</code></td>
           <td>{{ '对' if entry.correct else '错' }}</td>
         </tr>
         {% endfor %}
@@ -122,6 +146,28 @@
   {% else %}
   <p class="muted">还没有猜测记录。</p>
   {% endif %}
+</section>
+
+<section class="card">
+  <h2>24 小时 IP 统计</h2>
+  <p class="muted">内存保留最近 {{ data.ipstats.windows }} 个整点窗口，每 2 分钟写入 <code>{{ data.ipstats.db }}</code>。本小时请求 {{ data.ipstats.requests_this_hour }} 次。</p>
+  {% if data.ipstats.top_ips %}
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>IP</th><th>24 小时请求</th></tr></thead>
+      <tbody>
+        {% for ip, hits in data.ipstats.top_ips %}
+        <tr><td><code>{{ ip }}</code></td><td>{{ hits }}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="muted">还没有统计数据。</p>
+  {% endif %}
+  <p class="muted">近 6 小时本机访问 {{ data.loopback.loop_6h }} 次（其中管理后台 {{ data.loopback.loop_admin_6h }} 次）。
+    {% if data.loopback.all_loopback_6h %}最近 6 小时只有本机访问，请检查反向代理和端口暴露。{% endif %}
+  </p>
 </section>
 
 <section class="card">
@@ -137,7 +183,7 @@
 </section>
 
 <footer class="muted">
-  答案文件：<code>{{ data.answers_file }}</code> · 状态文件：<code>{{ data.state_file }}</code> · 猜测原文保存在 state.json 里。
+  答案哈希：<code>{{ data.answers_file }}</code> · 状态文件：<code>{{ data.state_file }}</code> · 猜测记录只保留哈希。
 </footer>
 {% endif %}
 {% endblock %}

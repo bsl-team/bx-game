@@ -20,6 +20,7 @@ from flask import (Blueprint, current_app, flash, redirect, render_template,
                    request, session, url_for)
 
 from game import ROOT, now_iso
+from ipstats import is_loopback
 
 bp = Blueprint("super_admin", __name__, url_prefix="/super_admin")
 
@@ -140,9 +141,31 @@ def _ext(name: str):
     return current_app.extensions[name]
 
 
+@bp.before_request
+def _record_admin_access():
+    ip = str(request.remote_addr or "")
+    loop = is_loopback(ip)
+    _ext("bx_ipstats").record(ip, loopback=loop, admin=True)
+
+
+def _loop_messages() -> list[str]:
+    info = _ext("bx_ipstats").loopback_summary()
+    messages = []
+    if info["loop_6h"] > 0:
+        messages.append(
+            f"近 6 小时有 {info['loop_6h']} 次来自本机（127.0.0.1）的访问，"
+            f"其中管理后台 {info['loop_admin_6h']} 次。"
+        )
+    if info["all_loopback_6h"]:
+        messages.append("近 6 小时所有请求都来自本机，请确认反向代理和端口暴露是否正常。")
+    return messages
+
+
 def authed() -> bool:
+    if not session.get("admin"):
+        return False
     auth: AdminAuth = _ext("bx_admin")
-    if not auth.configured or not session.get("admin"):
+    if not auth.configured:
         return False
     if int(session.get("admin_gen", -1)) != auth.generation:
         session.pop("admin", None)
@@ -230,12 +253,19 @@ def panel():
     logged_in = authed()
     data = {}
     recent: list[dict] = []
+    settings = _ext("bx_settings")
+    themes = _ext("bx_themes")
+    pages = _ext("bx_pages")
     if logged_in:
         store = _ext("bx_store")
         data = store.snapshot()
+        theme_list = themes.all()
         for row in data["levels"]:
             row["page_exists"] = level_page(row["level"]).is_file()
-            row["page_url"] = f"/copyspace/step{row['level']}.html"
+            row["page_url"] = f"/game/{row['level']}"
+            style = pages.get(row["level"])
+            row["theme"] = style.get("theme") or ""
+            row["theme_label"] = theme_list.get(row["theme"], {}).get("label", "默认")
         log = data.get("guess_log", [])
         now = datetime.now(timezone.utc).timestamp()
         recent_hour = 0
@@ -248,6 +278,10 @@ def panel():
         data["guesses_last_hour"] = recent_hour
         data["distinct_players"] = len({e.get("pid") for e in log if e.get("pid")})
         data["answers_file"] = str(_ext("bx_book").path)
+        data["ipstats"] = _ext("bx_ipstats").summary()
+        data["gate"] = _ext("bx_gate").snapshot()
+        data["loopback"] = _ext("bx_ipstats").loopback_summary()
+        data["notice"] = _loop_messages()
         recent = list(reversed(log[-30:]))
     return render_template(
         "super_admin.html",
@@ -258,6 +292,13 @@ def panel():
         recent=recent,
         next_level=(int(data.get("total_levels", 0)) + 1 if data else 1),
         min_password_length=int(_ext("bx_cfg")["admin"].get("min_password_length", 8)),
+        settings={
+            "rate_count": settings.get_int("rate_limit_count", 1),
+            "rate_window": settings.get_float("rate_limit_window", 0.5),
+            "gate_wait_ms": settings.get_int("gate_wait_timeout_ms", 50),
+            "default_theme": settings.get("default_theme", "chatgpt"),
+        },
+        themes=themes.all() if logged_in else {},
     )
 
 
@@ -266,14 +307,26 @@ def panel():
 def login():
     auth: AdminAuth = _ext("bx_admin")
     limiter = _ext("bx_admin_limiter")
-    allowed, retry = limiter.check(f"login:{request.remote_addr}")
-    if not allowed:
-        flash(f"尝试太频繁，请 {max(1, round(retry))} 秒后再试。", "error")
-        return redirect(url_for("super_admin.panel"))
+    settings = _ext("bx_settings")
+    ip = str(request.remote_addr or "")
+    loop = is_loopback(ip)
+    if not loop:
+        allowed, retry = limiter.check(
+            ip,
+            settings.get_int("rate_limit_admin_count", 1),
+            settings.get_float("rate_limit_admin_window", 1.0),
+        )
+        if not allowed:
+            flash(f"尝试太频繁，请 {max(1, round(retry))} 秒后再试。", "error")
+            return redirect(url_for("super_admin.panel"))
     if not auth.configured:
         flash("还没有设置管理密码，请先在服务器上运行 python app.py admin-password", "error")
         return redirect(url_for("super_admin.panel"))
     if not auth.verify(request.form.get("password", "")):
+        if not loop:
+            delay = settings.get_float("admin_login_delay_ms", 0, 60_000) / 1000.0
+            if delay > 0:
+                time.sleep(delay)
         flash("管理密码不正确。", "error")
         return redirect(url_for("super_admin.panel"))
     session["admin"] = True
@@ -281,6 +334,8 @@ def login():
     session["admin_at"] = time.time()
     session["csrf"] = secrets.token_urlsafe(24)
     flash("登录成功。", "ok")
+    for message in _loop_messages():
+        flash("提示：" + message, "error")
     return redirect(url_for("super_admin.panel"))
 
 
@@ -300,12 +355,12 @@ def logout():
 def answer():
     try:
         level = _parse_level(request.form.get("level"))
-        password = _ext("bx_book").set_answer(level, request.form.get("answer", ""))
+        digest = _ext("bx_book").set_answer(level, request.form.get("answer", ""))
         _ext("bx_store").reset_solved(level)
     except (TypeError, ValueError) as exc:
         flash(f"保存失败：{exc}", "error")
         return redirect(url_for("super_admin.panel"))
-    message = f"第 {level} 关答案已保存（{len(password)} 个字符），这一关重新开放。"
+    message = f"第 {level} 关答案已保存（{digest[:12]}…，服务器只存 SHA-256），这一关重新开放。"
     flash(message + _level_exists_warning(level), "error" if not level_page(level).is_file() else "ok")
     return redirect(url_for("super_admin.panel"))
 
@@ -374,8 +429,11 @@ def edit_page(level: int):
         level=level,
         source=source,
         page_exists=page_exists,
-        page_url=f"/copyspace/step{level}.html",
-        answer=_ext("bx_book").answer_for(level),
+        page_url=f"/game/{level}",
+        answer_hash=_ext("bx_book").hash_for(level),
+        level_style=_ext("bx_pages").get(level),
+        themes=_ext("bx_themes").all(),
+        default_theme=_ext("bx_settings").get("default_theme", "chatgpt"),
     )
 
 
@@ -406,7 +464,7 @@ def save_page():
         return redirect(url_for("super_admin.edit_page", level=level))
     flash(f"第 {level} 关源码已保存（{len(source)} 字符）。", "ok")
     if request.form.get("then") == "open":
-        return redirect(f"/copyspace/step{level}.html")
+        return redirect(f"/game/{level}")
     return redirect(url_for("super_admin.edit_page", level=level))
 
 
@@ -458,3 +516,145 @@ def password():
     session["csrf"] = secrets.token_urlsafe(24)
     flash("管理密码已修改，请重新登录。", "ok")
     return redirect(url_for("super_admin.panel"))
+
+
+@bp.post("/settings")
+@require_csrf
+@require_login
+def save_settings():
+    settings = _ext("bx_settings")
+    try:
+        count = int(request.form.get("rate_count", ""))
+        window = float(request.form.get("rate_window", ""))
+        inflight = int(request.form.get("gate_inflight", ""))
+        wait_ms = int(request.form.get("gate_wait_ms", ""))
+        if not 1 <= count <= 100_000:
+            raise ValueError("次数需在 1-100000 之间")
+        if not 0.5 <= window <= 3600:
+            raise ValueError("窗口需在 0.5-3600 秒之间")
+        if not 1 <= inflight <= 10_000:
+            raise ValueError("并发上限需在 1-10000 之间")
+        if not 50 <= wait_ms <= 60_000:
+            raise ValueError("排队等待需在 50-60000 毫秒之间")
+    except (TypeError, ValueError) as exc:
+        flash(f"保存失败：{exc}", "error")
+        return redirect(url_for("super_admin.panel"))
+    settings.update({
+        "rate_limit_count": count,
+        "rate_limit_window": window,
+        "gate_max_inflight": inflight,
+        "gate_wait_timeout_ms": wait_ms,
+    })
+    _ext("bx_gate").configure(max_inflight=inflight)
+    flash(f"已保存：每 IP {window:g} 秒最多 {count} 次，回环地址不限。", "ok")
+    return redirect(url_for("super_admin.panel"))
+
+
+@bp.get("/themes")
+def theme_panel():
+    if not authed():
+        flash("请先登录。", "error")
+        return redirect(url_for("super_admin.panel"))
+    themes = _ext("bx_themes")
+    edit_name = request.args.get("edit") or str(_ext("bx_settings").get("default_theme") or "")
+    theme_list = themes.all()
+    if edit_name not in theme_list:
+        edit_name = next(iter(theme_list))
+    return render_template(
+        "super_admin_themes.html",
+        authed=True,
+        configured=True,
+        csrf=csrf_token(),
+        themes=theme_list,
+        edit_name=edit_name,
+        edit_theme=theme_list[edit_name],
+        default_theme=_ext("bx_settings").get("default_theme", "chatgpt"),
+        page_styles=_ext("bx_pages").all(),
+        total_levels=_ext("bx_book").total_levels(),
+    )
+
+
+@bp.post("/themes/save")
+@require_csrf
+@require_login
+def save_theme():
+    themes = _ext("bx_themes")
+    name = str(request.form.get("name", "")).strip()
+    label = str(request.form.get("label", "")).strip()
+    css = request.form.get("css", "")
+    try:
+        if request.form.get("create") == "1":
+            new_name = str(request.form.get("new_name", "")).strip()
+            themes.create(new_name, label, css)
+            flash(f"主题 {new_name} 已创建。", "ok")
+            name = new_name
+        else:
+            themes.save(name, label, css)
+            flash(f"主题 {name} 源码已保存。", "ok")
+    except ValueError as exc:
+        flash(f"保存失败：{exc}", "error")
+    return redirect(url_for("super_admin.theme_panel", edit=name or None))
+
+
+@bp.post("/themes/default")
+@require_csrf
+@require_login
+def set_default_theme():
+    name = str(request.form.get("name", "")).strip()
+    if name not in _ext("bx_themes").all():
+        flash("主题不存在。", "error")
+        return redirect(url_for("super_admin.theme_panel"))
+    _ext("bx_settings").update({"default_theme": name})
+    flash(f"默认主题已设为 {name}。", "ok")
+    return redirect(url_for("super_admin.theme_panel", edit=name))
+
+
+@bp.post("/themes/reset")
+@require_csrf
+@require_login
+def reset_theme():
+    name = str(request.form.get("name", "")).strip()
+    try:
+        _ext("bx_themes").reset(name)
+        flash(f"已恢复内置主题 {name} 的默认源码。", "ok")
+    except ValueError as exc:
+        flash(str(exc), "error")
+    return redirect(url_for("super_admin.theme_panel", edit=name or None))
+
+
+@bp.post("/themes/delete")
+@require_csrf
+@require_login
+def delete_theme():
+    name = str(request.form.get("name", "")).strip()
+    try:
+        _ext("bx_themes").delete(name)
+        settings = _ext("bx_settings")
+        if settings.get("default_theme") == name:
+            settings.update({"default_theme": "chatgpt"})
+        flash(f"主题 {name} 已删除。", "ok")
+    except ValueError as exc:
+        flash(str(exc), "error")
+    return redirect(url_for("super_admin.theme_panel"))
+
+
+@bp.post("/background")
+@require_csrf
+@require_login
+def background():
+    try:
+        level = _parse_level(request.form.get("level"))
+    except (TypeError, ValueError) as exc:
+        flash(f"保存失败：{exc}", "error")
+        return redirect(url_for("super_admin.panel"))
+    theme = str(request.form.get("theme", "")).strip()
+    if theme and theme not in _ext("bx_themes").all():
+        flash("这个主题不存在。", "error")
+        return redirect(url_for("super_admin.edit_page", level=level))
+    try:
+        _ext("bx_pages").set(level, theme, request.form.get("css", ""))
+    except ValueError as exc:
+        flash(f"保存失败：{exc}", "error")
+        return redirect(url_for("super_admin.edit_page", level=level))
+    flash(f"第 {level} 关背景已保存" + (f"（主题 {theme}）" if theme else "（跟随默认主题）") + "。", "ok")
+    return redirect(url_for("super_admin.edit_page", level=level))
